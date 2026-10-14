@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Telegram</title><link rel="stylesheet" href="../__picode/tokens.css"><link rel="stylesheet" href="setup.css"><script defer src="setup.js"></script></head>
+<body class="pc-page">
+  <main class="setup">
+    <header><h1>Telegram</h1><p class="pc-muted">Your Inbox and agents in one private chat.</p></header>
+    <div id="loading" aria-label="Checking Telegram" aria-busy="true"><div class="skeleton"></div><div class="skeleton short"></div></div>
+    <section id="content" hidden>
+      <p id="status" role="status"></p>
+      <p id="identity" class="pc-muted" hidden></p>
+      <p id="problem" class="notice" role="alert" hidden></p>
+      <div id="actions" class="actions" data-align-row>
+        <button id="settings" class="pc-button" type="button">Bot settings</button>
+        <button id="pair" class="pc-button primary" type="button" hidden>Pair your chat</button>
+        <button id="pause" class="pc-button" type="button" hidden>Pause</button>
+        <button id="disconnect" class="pc-button" type="button" hidden>Disconnect chat</button>
+        <button id="refresh" class="pc-button" type="button">Check connection</button>
+      </div>
+      <section id="pairing" class="pairing" hidden>
+        <h2>Connect your Telegram account</h2>
+        <p>Open your bot and send this command. This code works once and expires in ten minutes.</p>
+        <code id="code"></code>
+        <div class="actions" data-align-row><button id="copy" class="pc-button" type="button">Copy command</button><a id="telegram" class="pc-button primary" target="_blank" rel="noreferrer">Open Telegram</a></div>
+      </section>
+      <p id="uncertain" class="notice" hidden>Some deliveries could not be confirmed. Check the chat and your Inbox before sending again.</p>
+      <button id="retry" class="pc-button" type="button" hidden>I checked Telegram: retry one notice</button>
+      <p class="privacy pc-muted">Titles and answer options are sent by default. Message text is optional in Bot settings; long text is shortened. Only your paired account can answer.</p>
+    </section>
+  </main>
+</body>
+</html>

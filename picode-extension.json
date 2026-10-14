@@ -1,0 +1,54 @@
+{
+  "id": "telegram",
+  "name": "Telegram",
+  "version": "0.1.0",
+  "apiVersion": 1,
+  "publisher": "COGNIX[WS]",
+  "description": "Receive questions and results, answer your Inbox and talk to your agents from one private Telegram chat.",
+  "channel": {
+    "name": "Telegram"
+  },
+  "process": {
+    "command": "node",
+    "args": [
+      "${extensionDir}/server/main.mjs"
+    ]
+  },
+  "activation": {
+    "instance": true
+  },
+  "permissions": [
+    "agents:read",
+    "inbox:read",
+    "inbox:answer",
+    "messages:read",
+    "messages:owner"
+  ],
+  "settings": [
+    {
+      "key": "bot_token",
+      "label": "Bot token",
+      "type": "secret",
+      "description": "The BotFather token. Stored protected on this computer."
+    },
+    {
+      "key": "full_text",
+      "label": "Include message text",
+      "type": "boolean",
+      "default": false,
+      "description": "Send masked message bodies as well as titles. Long text is shortened."
+    }
+  ],
+  "storage": {
+    "migrations": "migrations"
+  },
+  "ui": {
+    "pages": [
+      {
+        "id": "setup",
+        "title": "Telegram",
+        "path": "ui/setup.html"
+      }
+    ]
+  }
+}
