@@ -4,11 +4,13 @@ A local PiCode extension carrying the owner's Inbox and agent Messages to one
 private Telegram chat. Agents keep using `ask_human`, `notify_human` and
 Messages. There is no Channels tool family or direct Assistant entry in V1.
 
-Local draft: 46 adapter tests and isolated UI review pass. Core checked
-settings, the Channels directory and captured origin landed in `88f93c021`
-under ADR-0327/0328 with full CI green. A dedicated real bot was created and
-authenticated through the protected form; private pairing, live delivery and
-publication remain separate acceptance gates.
+Published with owner authorization at [cognixws/picode-telegram](https://github.com/cognixws/picode-telegram).
+Version 0.1.3 has 47 adapter tests passing. Owner-authorized dev acceptance
+passed 13 real Telegram/managed Pi checks: private pairing, Inbox option/text
+answers, bidirectional Messages/Reply, channel pause/resume, configured extension
+restart and stopped-recipient refusal. This is partial V1 acceptance; strangers,
+concurrent races, provider failures, configured restore and native/physical-phone
+acceptance remain unverified. Revisions, digest and limits: [acceptance](docs/acceptance.md).
 
 Requires PiCode extension manifest version 3 (ADR-0327), the Channels V1 Host
 API (`channelProtocol: 1`) and Node.js 24
@@ -98,9 +100,9 @@ npm test
 ```
 
 Tests use migrated real SQLite files/connections and simulated provider/core
-responses. They do not establish real-bot delivery, live CLI acceptance,
-Windows WebView2 or physical-phone acceptance. Core/extension revisions and
-installed package digest must be recorded together for those observations.
+responses. The separate real-bot/live Pi receipt in [acceptance](docs/acceptance.md)
+records its installed package digest and scope; neither unit tests nor browser
+observations establish Windows WebView2 or physical-phone acceptance.
 See PiCode's `docs/plans/channels-v1-completion.md` acceptance rows A01–A20.
 
 Primary provider references: [Bot API](https://core.telegram.org/bots/api),
