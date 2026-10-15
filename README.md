@@ -119,3 +119,13 @@ an official Telegram product.
 The HTTPS Host API trusts the locally provided COGNIX certificate, including
 CA-issued development certificates, with certificate and hostname validation
 enabled. Provider HTTPS continues to use the standard trust roots.
+
+If the browser blocks clipboard access inside the extension page, **Copy command**
+selects the command and explains how to copy it with the keyboard or touch menu.
+It never reads the clipboard or reports a failed copy as successful.
+
+| Copy condition | Visible result |
+|---|---|
+| Clipboard write is allowed and completes | Confirm copied; paste into the bot chat |
+| Clipboard is blocked, unavailable or refuses the write | Select the visible command; explain keyboard or touch copying |
+| Pairing command expired or absent | No copy attempt; generate a fresh pairing command |

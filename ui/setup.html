@@ -19,7 +19,8 @@
       <section id="pairing" class="pairing" hidden>
         <h2>Connect your Telegram account</h2>
         <p>Open your bot and send this command. This code works once and expires in ten minutes.</p>
-        <code id="code"></code>
+        <code id="code" tabindex="0" aria-label="Pairing command"></code>
+        <p id="copy-status" role="status" hidden></p>
         <div class="actions" data-align-row><button id="copy" class="pc-button" type="button">Copy command</button><a id="telegram" class="pc-button primary" target="_blank" rel="noreferrer">Open Telegram</a></div>
       </section>
       <p id="uncertain" class="notice" hidden>Some deliveries could not be confirmed. Check the chat and your Inbox before sending again.</p>

@@ -53,6 +53,7 @@
   $('refresh').onclick = () => act($('refresh'), () => call('/check', {}));
   $('pair').onclick = () => act($('pair'), async () => {
     const result = await call('/pair-code', {});
+    $('copy-status').hidden = true;
     expires = result.expires; code = '/start ' + result.code; $('code').textContent = code;
     $('telegram').href = result.url; $('telegram').hidden = !result.url;
     $('pairing').hidden = false;
@@ -60,7 +61,22 @@
   $('pause').onclick = () => act($('pause'), () => call('/pause', { paused: !state.paused }));
   $('disconnect').onclick = () => act($('disconnect'), () => call('/disconnect', {}));
   $('retry').onclick = () => act($('retry'), () => call('/retry-notice', {}));
-  $('copy').onclick = () => act($('copy'), async () => { await navigator.clipboard.writeText(code); });
+  $('copy').onclick = async () => {
+    if (!code || expires <= Date.now()) return;
+    let copied = false;
+    const policy = document.permissionsPolicy || document.featurePolicy;
+    const allowed = !policy || policy.allowsFeature('clipboard-write');
+    if (allowed && navigator.clipboard?.writeText) {
+      try { await navigator.clipboard.writeText(code); copied = true; } catch { /* Use the visible manual selection below. */ }
+    }
+    if (!copied) {
+      $('code').focus();
+      const range = document.createRange(); range.selectNodeContents($('code'));
+      const selection = window.getSelection(); selection.removeAllRanges(); selection.addRange(range);
+    }
+    $('copy-status').textContent = copied ? 'Command copied. Paste it into your private bot chat.' : 'Command selected. Press Ctrl+C (Command+C on Mac), or touch and hold it and choose Copy. Then paste it into your private bot chat.';
+    $('copy-status').hidden = false;
+  };
   try { state = await call('/status'); lastStatus = Date.now(); show(); }
   catch (error) {
     $('status').textContent = 'Telegram is not available yet.';
