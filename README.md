@@ -111,3 +111,7 @@ Primary provider references: [Bot API](https://core.telegram.org/bots/api),
 Manifest v3 status uses the host closed states `needs-token`, `pairing`,
 `connected`, `paused`, `checking` and `error` (core ADR-0327). Pairing readiness
 is reported as `pairing` in both the directory and this extension page.
+
+The bundled app icon is the [official Telegram logo](https://telegram.org/tour/screenshots),
+served locally for the extension tile and page favicon. This extension is not
+an official Telegram product.
