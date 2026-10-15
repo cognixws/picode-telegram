@@ -2,16 +2,16 @@
 
 A local PiCode extension carrying the owner's Inbox and agent Messages to one
 private Telegram chat. Agents keep using `ask_human`, `notify_human` and
-Messages. V2 adds explicitly granted channel tools and separately admitted
+Messages. V2 adds default-off channel tools and tool-enabled
 Assistant conversations, with Telegram as the only provider.
 
 Published with owner authorization at [cognixws/picode-telegram](https://github.com/cognixws/picode-telegram).
-Version 0.3.0 implements the API-4 protocol-2 adapter. The accepted V1 live
+Version 0.3.1 implements the API-4 protocol-2 adapter. The accepted V1 live
 receipt below remains historical; real V2 acceptance requires the matching core
 deployment. The owner accepted V1 on 2026-10-15 with retained validation debt.
 Revisions, tests and limits: [acceptance](docs/acceptance.md).
 
-Requires PiCode manifest API 4 (ADR-0330), Channels protocol 2 and Node.js 24
+Requires the tool-authorized PiCode core (ADR-0332), manifest API 4 (ADR-0330), Channels protocol 2 and Node.js 24
 or later. Node is an optional adapter runtime, not a PiCode requirement.
 The implementation uses Node builtins only, including `node:sqlite`; no npm
 packages or hosted relay are required.
@@ -26,14 +26,14 @@ packages or hosted relay are required.
    and open the private bot chat. The paired account/chat identity is shown.
 5. Reply to an Inbox question, tap a supplied option or use `/agents` to select
    a running CLI agent. Replies to agent messages retain their conversation.
-6. For Assistants, turn on **Include message text**, open **Channels → Telegram
-   → Access**, choose the Assistant and an existing workspace, and allow
-   conversations. Then use `/assistants` in Telegram. This is separate from
-   granting outbound tools.
-7. For autonomous sends, enable the default-off **channels** tool family on the
-   chosen CLI/Assistant and grant **Send requested text to you** for Telegram.
-   Launch/relaunch that CLI after enabling the family. Pairing or `/assistants`
-   alone does not enable outbound tools. See [the V2 contract](docs/protocol-v2.md).
+6. Turn on **Include message text** and enable **Channels** in the chosen
+   Assistant's tools, then save. Use `/assistants` in Telegram. The same tool
+   setting permits tool sends; no second access form or workspace grant exists.
+   Conversations use that Assistant's existing memory and enabled tools.
+7. For CLI tool sends, enable the default-off **Channels** family and relaunch
+   that CLI. List the connections and choose one explicitly for each send.
+   Ordinary Assistant answers return to their source automatically; a tool send
+   is an additional delivery. See [the V2 contract](docs/protocol-v2.md).
 
 Titles and options leave by default. Full message text requires the explicit
 **Include message text** setting and always passes through daemon masking.

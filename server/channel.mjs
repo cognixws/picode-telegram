@@ -176,7 +176,7 @@ export class Channel {
       if (start && this.ledger.pair({ code: start[1], chat: message.chat, user, messageTime: message.date })) {
         finish('paired');
         await this.v2.sync();
-        await this.notice('Connected to COGNIX. Use /agents to choose an agent, /assistants for admitted Assistants, or reply to an Inbox question.');
+        await this.notice('Connected to COGNIX. Use /agents to choose an agent, /assistants for Assistants with Channels enabled, or reply to an Inbox question.');
         return;
       }
       finish('ignored'); return;
@@ -240,8 +240,8 @@ export class Channel {
     if (!text) return { text: 'Only text reaches agents for now. Open COGNIX for files or audio.' };
     if (this.v2.enabled && (text === '/assistants' || text.startsWith('/assistants@'))) return this.v2.choose('assistant');
     if (text === '/agents' || text.startsWith('/agents@')) return this.chooseAgent();
-    if (text === '/help' || text === '/start') return { text: 'Use /agents for running agents or /assistants for admitted Assistants. Reply to a question to answer it, or reply to an agent message to continue that conversation.' };
-    if (text.startsWith('/')) return { text: 'Use /agents to choose an agent, /assistants for admitted Assistants, or reply to an Inbox question.' };
+    if (text === '/help' || text === '/start') return { text: 'Use /agents for running agents or /assistants for Assistants with Channels enabled. Reply to a question to answer it, or reply to an agent message to continue that conversation.' };
+    if (text.startsWith('/')) return { text: 'Use /agents to choose an agent, /assistants for Assistants with Channels enabled, or reply to an Inbox question.' };
     const mapping = message.reply_to_message && this.ledger.mapping(message.reply_to_message.message_id);
     if (message.reply_to_message && !mapping) return { text: 'This message is no longer linked. Use /agents to choose who to write to, or open the question in COGNIX.' };
     if (mapping?.kind === 'inbox') {
@@ -353,7 +353,7 @@ export class Channel {
     if (['text-disabled','reply-revoked'].includes(error.code) || error.stage==='host') {
       const transient = error.stage==='host' && (!error.status || error.status===429 || error.status>=500);
       this.ledger.settleDelivery(key, transient?'retry':'failed',null,transient?this.now()+Math.max(5,error.retryAfter||0)*1000:0);
-      this.warning = error.code==='text-disabled' ? 'Assistant replies require Include message text in Telegram settings.' : 'The reply was not sent. Check the current channel access in COGNIX.';
+      this.warning = error.code==='text-disabled' ? 'Assistant replies require Include message text in Telegram settings.' : 'The reply was not sent. Check the Assistant Channels tool and the connection in COGNIX.';
       return;
     }
     if (error.code === 'paused') { this.ledger.settleDelivery(key, 'retry'); return; }

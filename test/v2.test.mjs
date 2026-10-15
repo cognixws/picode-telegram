@@ -260,3 +260,26 @@ test('post-effect ledger failures retain uncertainty instead of inviting a repea
  const op=f.operation();assert.equal((await f.c.v2.send(op)).state,'uncertain');
  assert.equal((await f.c.v2.send(op)).state,'uncertain');assert.equal(f.provider.length,1);
 });
+
+test('empty Assistant picker guides to the sole Channels tool setting',async t=>{
+ const f=await fixture(t);f.setAssistants([]);
+ const picker=await f.c.v2.choose('assistant');
+ assert.match(picker.text,/enable Channels in its tools/);
+ assert.doesNotMatch(picker.text,/workspace|Telegram access|admitted/);
+});
+
+test('tool lifecycle revision is opaque and stale picker cannot survive a switch change',async t=>{
+ const f=await fixture(t);
+ f.setAssistants([{id:'as-a',name:'Assistant A',revision:-2,generation:'generation-1'}]);
+ const picker=await f.c.v2.choose('assistant');
+ const callback=picker.keyboard[0][0].callback_data;
+ // Bind the callback to its actual provider message just as Channel.sendNotice does.
+ f.ledger.bindHandle(callback,800);
+ await f.c.v2.select(callback,800,f.ledger.get('pair').generation);
+ await f.c.receive(f.update('Negative revision input'));
+ assert.equal(f.writes[0].body.revision,-2);
+ const second=await f.c.v2.choose('assistant');
+ f.ledger.bindHandle(second.keyboard[0][0].callback_data,801);
+ f.setAssistants([{id:'as-a',name:'Assistant A',revision:-4,generation:'generation-1'}]);
+ await assert.rejects(f.c.v2.select(second.keyboard[0][0].callback_data,801,f.ledger.get('pair').generation),/current target/);
+});

@@ -59,7 +59,7 @@ export class ChannelV2 {
       if (!result.textEnabled) return {text:enabledMessage};
       items = result.assistants || [];
     } else items = await this.channel.agents();
-    if (!items.length) return {text:kind === 'assistant' ? 'No Assistants are admitted. Open Telegram access in COGNIX, choose an Assistant and its workspace, and allow conversations.' : 'No agents are running. Open COGNIX to start one.'};
+    if (!items.length) return {text:kind === 'assistant' ? 'No Assistants have Channels enabled. Open an Assistant in COGNIX, enable Channels in its tools, and save.' : 'No agents are running. Open COGNIX to start one.'};
     // A concurrent picker opening invalidates this keyboard rather than mixing slots.
     if (picker !== this.ledger.get('picker_revision')) throw new ApiError(409,'Open the picker again.');
     const selected = this.ledger.get('selected_target');
@@ -112,7 +112,7 @@ export class ChannelV2 {
     let result;
     try { result = await this.channel.host.request('/api/ext/v2/assistants/replies/check',{id}); } catch (error) { error.stage='host'; throw error; }
     this.channel.assertActive(pairGeneration);
-    if (result.allowed !== true) throw new ApiError(403,'This Assistant reply is no longer admitted.',{code:'reply-revoked'});
+    if (result.allowed !== true) throw new ApiError(403,'This Assistant reply is no longer available. Check the Channels tool and connection in COGNIX.',{code:'reply-revoked'});
   }
   validate(body, withText) {
     if (!body || !identity(body.operation) || !hex(body.session) || !hex(body.payloadHash) || withText && (typeof body.text!=='string' || !body.text.trim() || Buffer.byteLength(body.text)>16*1024 || hash(body.text)!==body.payloadHash)) throw new ApiError(400,'Invalid bounded operation.');
