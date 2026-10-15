@@ -24,7 +24,7 @@ export class Channel {
   status() {
     const pair = this.ledger.get('pair');
     const problem = this.problem || this.errors.values().next().value || '';
-    const state = this.verifying ? 'checking' : this.connectionBlocked() || problem ? 'error' : !this.bot ? 'needs-token' : this.ledger.get('paused', false) ? 'paused' : pair ? 'connected' : 'needs-pairing';
+    const state = this.verifying ? 'checking' : this.connectionBlocked() || problem ? 'error' : !this.bot ? 'needs-token' : this.ledger.get('paused', false) ? 'paused' : pair ? 'connected' : 'pairing';
     return { state, botName: this.botName, paired: !!pair, paused: this.ledger.get('paused', false), uncertain: this.ledger.uncertain(), retryAvailable: !!this.ledger.uncertainNotice(), problem: this.ledger.get('conflict', false) ? 'Another connection is using this bot. Stop it, then check this connection.' : this.ledger.get('authentication_required', false) ? 'Disconnected: check your bot token in COGNIX.' : this.ledger.get('chat_blocked', false) ? 'Unblock this bot in Telegram, then check the connection.' : problem || this.warning, identity: pair ? { user: pair.user, chat: pair.chat } : null, restored: this.ledger.get('restored', false), publicLinkAvailable: !!this.publicURL };
   }
   connectionBlocked() { return this.verifying || !!this.problem || ['conflict', 'authentication_required', 'chat_blocked'].some(key => this.ledger.get(key, false)); }

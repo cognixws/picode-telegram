@@ -2,17 +2,19 @@
   "id": "telegram",
   "name": "Telegram",
   "version": "0.1.0",
-  "apiVersion": 1,
+  "apiVersion": 3,
   "publisher": "COGNIX[WS]",
   "description": "Receive questions and results, answer your Inbox and talk to your agents from one private Telegram chat.",
   "channel": {
-    "name": "Telegram"
+    "name": "Telegram",
+    "statusPath": "/status"
   },
   "process": {
     "command": "node",
     "args": [
       "${extensionDir}/server/main.mjs"
-    ]
+    ],
+    "settingsCheck": "/settings/check"
   },
   "activation": {
     "instance": true

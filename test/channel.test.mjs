@@ -46,6 +46,23 @@ async function fixture(t) {
   return { ledger, channel, provider, mutations, update, advance: ms => { now += ms; }, setTruncated: x => {truncated = x;}, setInbox: x => { inbox = x; }, setMessages: x => { messages = x; }, setProviderError: x => { providerError = x; }, setMutationError: x => { failMutation = x; } };
 }
 
+test('connection transitions use the manifest v3 closed host status states', async t => {
+  const f = await fixture(t);
+  assert.equal(f.channel.status().state, 'connected');
+  f.ledger.unpair();
+  assert.equal(f.channel.status().state, 'pairing');
+  assert.equal(f.channel.pause(true).state, 'paused');
+  f.channel.pause(false);
+  f.channel.verifying = true;
+  assert.equal(f.channel.status().state, 'checking');
+  f.channel.verifying = false;
+  f.channel.problem = 'Connection unavailable';
+  assert.equal(f.channel.status().state, 'error');
+  f.channel.problem = '';
+  f.channel.bot = null;
+  assert.equal(f.channel.status().state, 'needs-token');
+});
+
 test('strangers and groups are ignored without a core mutation or acknowledgement', async t => {
   const f = await fixture(t);
   await f.channel.receive(f.update('private content', { from: { id: 20 } }));

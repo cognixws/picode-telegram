@@ -6,13 +6,14 @@ adapter evidence, not real-bot or complete-V1 acceptance.
 
 | Conditions | Expected action | Current evidence |
 |---|---|---|
+| Manifest v3 status transitions | Use the core closed state names, including `pairing` before a chat is paired | Six-state regression fixture PASS; 46 adapter tests PASS |
 | Private one-use code, correct account/chat/bot | Pair one owner; never store raw code | Real migrated SQLite fixture PASS |
 | Stranger, group, bot, expired/reused/predating/undated code | No core effect or acknowledgement | Ledger/channel tests PASS |
-| Owner verifies valid candidate token with no webhook | Check identity and webhook; no returned or retained token | Candidate tests PASS; host pre-save flow pending |
-| Malformed/rejected token or existing webhook | Refuse before host persistence | Adapter tests PASS; host persistence gate pending |
+| Owner verifies valid candidate token with no webhook | Check identity and webhook; no returned or retained token | Candidate tests PASS; host loopback check/persistence table PASS on core setup branch; UI/real-bot acceptance separate |
+| Malformed/rejected token or existing webhook | Refuse before host persistence | Adapter tests PASS; host rejection/no-write table PASS on core setup branch |
 | Check in progress, invalid token, blocked chat or other poller | Stop effects until explicit repair/check | Checking/auth/block/conflict simulations PASS; provider receipt UNVERIFIED |
 | Title/options default or explicit full-text setting | Only declared masked content leaves | Default-content simulation PASS; core masking corpus/live opt-in UNVERIFIED |
-| Current question with unchanged button or text reply | One canonical answer; changed/stale button refuses | Channel tests PASS; core options/live question flow pending |
+| Current question with unchanged button or text reply | One canonical answer; changed/stale button refuses | Channel tests PASS; core persisted options landed; real-bot question flow UNVERIFIED |
 | Core raw terminal or delivery paused | Hold the owner's message; remote transport cannot force keys | Core V1-0 fixtures; live CLI receipt UNVERIFIED |
 | Paused channel or pause during a core read | No core write/send; preserve unconsumed update | Channel tests PASS |
 | Agent message reply or selected live CLI | Preserve reply mapping/recipient; unknown reply never falls through | Channel tests PASS; live CLI receipt UNVERIFIED |
@@ -45,8 +46,17 @@ Core runtime version stamp was `0.8.0+18b1857`, with scratch binary SHA-256
 it predates the core integration merges. This establishes that fixture's
 process/data lifecycle, not the current core HEAD or configured-bot recovery.
 
-Remaining delivery gates: host pre-save validation and Channels list,
-persisted Inbox options, trusted visible origin, real dedicated bot + live
+Remaining delivery gates: Channels directory/protected-form scratch acceptance,
+trusted visible origin, real dedicated bot + live
 CLI, restart/restore/disable receipts, and publication authorization. The
 adapter has no published remote yet. Portable extension credentials remain
 a core backup debt; installed domain data alone does not restore authority.
+
+Real setup checkpoint (2026-10-14): the owner authorized creation of
+`@picode_v1_goat_20261014_bot` (PiCode V1 Test) through the visible BotFather UI.
+Only the non-code success prefix was projected; no bot token was read or copied
+by the agent. The owner reported saving the token in the host protected form.
+The running adapter exposed a previously untested state-name mismatch
+(`needs-pairing` versus the host `pairing`); this draft corrects it and covers
+all six status transitions. Private pairing and real deliveries are still
+UNVERIFIED at this checkpoint.

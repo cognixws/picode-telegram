@@ -5,10 +5,11 @@ private Telegram chat. Agents keep using `ask_human`, `notify_human` and
 Messages. There is no Channels tool family or direct Assistant entry in V1.
 
 Draft implementation: provider simulations and isolated UI review are in
-progress. The host's pre-save check and Channels settings surface are the
-next core slice; real-bot and live-CLI acceptance remain unverified.
+progress. The host's pre-save check and Channels settings surface are implemented on the core
+`feat/channels-v1-setup` branch under ADR-0327; real-bot and live-CLI acceptance remain unverified.
 
-Requires PiCode's Channels V1 Host API (`channelProtocol: 1`) and Node.js 24
+Requires PiCode extension manifest version 3 (ADR-0327), the Channels V1 Host
+API (`channelProtocol: 1`) and Node.js 24
 or later. Node is an optional adapter runtime, not a PiCode requirement.
 The implementation uses Node builtins only, including `node:sqlite`; no npm
 packages or hosted relay are required.
@@ -104,3 +105,7 @@ Primary provider references: [Bot API](https://core.telegram.org/bots/api),
 [update retention and polling](https://core.telegram.org/bots/api#getting-updates),
 [rate guidance](https://core.telegram.org/bots/faq#my-bot-is-hitting-limits-how-do-i-avoid-this),
 [bot privacy](https://core.telegram.org/bots/faq#how-are-bots-different-from-humans).
+
+Manifest v3 status uses the host closed states `needs-token`, `pairing`,
+`connected`, `paused`, `checking` and `error` (core ADR-0327). Pairing readiness
+is reported as `pairing` in both the directory and this extension page.

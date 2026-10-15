@@ -11,7 +11,7 @@
     return data;
   }
   function show() {
-    const labels = { checking: 'Checking the bot connection…', 'needs-token': 'Add your bot token in Bot settings to begin.', 'needs-pairing': state.restored ? 'Restored connection: pair your Telegram account again.' : 'Your bot is ready. Pair your private chat.', connected: 'Connected to your private Telegram chat.', paused: 'Paused. Questions and messages will wait.', error: 'The connection needs your attention.' };
+    const labels = { checking: 'Checking the bot connection…', 'needs-token': 'Add your bot token in Bot settings to begin.', pairing: state.restored ? 'Restored connection: pair your Telegram account again.' : 'Your bot is ready. Pair your private chat.', connected: 'Connected to your private Telegram chat.', paused: 'Paused. Questions and messages will wait.', error: 'The connection needs your attention.' };
     $('identity').hidden = !state.identity;
     $('identity').textContent = state.identity ? `Paired Telegram account: ${state.identity.user}` : '';
     $('status').textContent = labels[state.state] || 'Check your Telegram connection.';
