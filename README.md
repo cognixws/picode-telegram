@@ -5,13 +5,13 @@ private Telegram chat. Agents keep using `ask_human`, `notify_human` and
 Messages. There is no Channels tool family or direct Assistant entry in V1.
 
 Published with owner authorization at [cognixws/picode-telegram](https://github.com/cognixws/picode-telegram).
-Version 0.1.3 has 47 adapter tests passing. Owner-authorized dev acceptance
+Version 0.2.0 has 51 adapter tests passing. Owner-authorized dev acceptance
 passed 13 real Telegram/managed Pi checks: private pairing, Inbox option/text
 answers, bidirectional Messages/Reply, channel pause/resume, configured extension
 restart and stopped-recipient refusal. The owner accepted V1 on 2026-10-15 with retained validation debt; strangers,
 concurrent races, provider failures, configured restore and native/physical-phone
-acceptance remain unverified and carry into Telegram-only V2 planning. No V2
-code or additional adapter is included. Revisions, digest and limits: [acceptance](docs/acceptance.md).
+acceptance remain unverified and carry into Telegram-only V2 planning. V2 setup diagnostics are included; outbound tools, Assistant entry and additional
+adapters are not included in this setup slice. Revisions, digest and limits: [acceptance](docs/acceptance.md).
 
 Requires PiCode extension manifest version 3 (ADR-0327), the Channels V1 Host
 API (`channelProtocol: 1`) and Node.js 24
@@ -132,3 +132,7 @@ It never reads the clipboard or reports a failed copy as successful.
 | Clipboard write is allowed and completes | Confirm copied; paste into the bot chat |
 | Clipboard is blocked, unavailable or refuses the write | Select the visible command; explain keyboard or touch copying |
 | Pairing command expired or absent | No copy attempt; generate a fresh pairing command |
+
+Connection checks distinguish COGNIX access/version failures from Telegram token,
+webhook, competing-connection and provider availability failures using fixed
+messages. Setup shows the token and private-chat steps and remaining pairing time.

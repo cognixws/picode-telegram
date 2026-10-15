@@ -1,3 +1,4 @@
+import { diagnostic } from './problems.mjs';
 import { createHash } from 'node:crypto';
 import { ApiError } from './http.mjs';
 
@@ -16,7 +17,7 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 export class Channel {
   constructor({ ledger, host, makeBot, now = Date.now, spacing = 1100 }) {
     this.ledger = ledger; this.host = host; this.makeBot = makeBot; this.now = now;
-    this.bot = null; this.botName = ''; this.problem = ''; this.warning = ''; this.fullText = false;
+    this.bot = null; this.botName = ''; this.problem = ''; this.problemCode = ''; this.warning = ''; this.fullText = false;
     this.publicURL = ''; this.stopped = false; this.lastSend = 0; this.sendChain = Promise.resolve();
     this.edits = new Set(); this.errors = new Map();
     this.spacing = spacing; this.lastSnapshot = 0; this.verifying = false;
@@ -25,18 +26,23 @@ export class Channel {
     const pair = this.ledger.get('pair');
     const problem = this.problem || this.errors.values().next().value || '';
     const state = this.verifying ? 'checking' : this.connectionBlocked() || problem ? 'error' : !this.bot ? 'needs-token' : this.ledger.get('paused', false) ? 'paused' : pair ? 'connected' : 'pairing';
-    return { state, botName: this.botName, paired: !!pair, paused: this.ledger.get('paused', false), uncertain: this.ledger.uncertain(), retryAvailable: !!this.ledger.uncertainNotice(), problem: this.ledger.get('conflict', false) ? 'Another connection is using this bot. Stop it, then check this connection.' : this.ledger.get('authentication_required', false) ? 'Disconnected: check your bot token in COGNIX.' : this.ledger.get('chat_blocked', false) ? 'Unblock this bot in Telegram, then check the connection.' : problem || this.warning, identity: pair ? { user: pair.user, chat: pair.chat } : null, restored: this.ledger.get('restored', false), publicLinkAvailable: !!this.publicURL };
+    const problemCode = this.ledger.get('conflict', false) ? 'poller-conflict' : this.ledger.get('authentication_required', false) ? 'token-rejected' : this.ledger.get('chat_blocked', false) ? 'chat-blocked' : this.problemCode;
+    return { state, problemCode, botName: this.botName, paired: !!pair, paused: this.ledger.get('paused', false), uncertain: this.ledger.uncertain(), retryAvailable: !!this.ledger.uncertainNotice(), problem: this.ledger.get('conflict', false) ? 'Another connection is using this bot. Stop it, then check this connection.' : this.ledger.get('authentication_required', false) ? 'Disconnected: check your bot token in COGNIX.' : this.ledger.get('chat_blocked', false) ? 'Unblock this bot in Telegram, then check the connection.' : problem || this.warning, identity: pair ? { user: pair.user, chat: pair.chat } : null, restored: this.ledger.get('restored', false), publicLinkAvailable: !!this.publicURL };
   }
   connectionBlocked() { return this.verifying || !!this.problem || ['conflict', 'authentication_required', 'chat_blocked'].some(key => this.ledger.get(key, false)); }
+  async hostRead(path) {
+    try { return await this.host.request(path); }
+    catch (error) { error.stage = 'host'; throw error; }
+  }
   async configure() {
-    const me = await this.host.request('/api/ext/v1/me');
+    const me = await this.hostRead('/api/ext/v1/me');
     if (me.channelProtocol !== 1 || !me.channel || typeof me.restoreGeneration !== 'string') throw new ApiError(409, 'Update COGNIX before connecting this channel.', { code: 'host-version' });
     this.ledger.restoreGeneration(me.restoreGeneration);
+    const settings = await this.hostRead('/api/ext/v1/settings');
     this.publicURL = this.validPublicURL(me.publicUrl || '');
-    const settings = await this.host.request('/api/ext/v1/settings');
-    this.fullText = settings.values?.full_text === true;
+        this.fullText = settings.values?.full_text === true;
     const token = settings.secrets?.bot_token;
-    if (!token) { this.bot = null; return; }
+    if (!token) { this.bot = null; this.problem = ''; this.problemCode = ''; return; }
     const bot = this.makeBot(token);
     const identity = await bot.call('getMe');
     const webhook = await bot.call('getWebhookInfo');
@@ -57,6 +63,9 @@ export class Channel {
   link(path) {
     return this.publicURL ? { text: 'Open in COGNIX', url: this.publicURL + '/#/' + path } : null;
   }
+  setProblem(error) {
+    const problem = diagnostic(error); this.problemCode = problem.code; this.problem = problem.message;
+  }
   async check() {
     if (this.verifying) throw new ApiError(409, 'A connection check is already running.', {code:'checking'});
     this.verifying = true;
@@ -64,9 +73,9 @@ export class Channel {
       await this.configure();
       this.ledger.set('conflict',false);
       this.ledger.set('chat_blocked',false);
-      this.problem=''; this.errors.clear();
+      this.problem=''; this.problemCode=''; this.errors.clear();
     } catch (error) {
-      this.problem = error.status === 401 ? 'Check your bot token in COGNIX.' : error.code === 'webhook-conflict' ? 'This bot has a webhook. Remove that connection or use another bot.' : 'The connection could not be checked. Try again.';
+      this.setProblem(error);
       throw error;
     } finally { this.verifying = false; }
     return this.status();

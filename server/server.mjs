@@ -1,3 +1,4 @@
+import { diagnostic } from './problems.mjs';
 import http from 'node:http';
 import { timingSafeEqual } from 'node:crypto';
 
@@ -31,8 +32,10 @@ export function createServer(channel, { secret, verify }) {
     } catch (error) {
       const status = [400, 401, 409, 429].includes(error.status) ? error.status : 502;
       // Consumer errors are fixed strings; never reflect submitted settings.
-      const message = error.code === 'history-unavailable' ? 'This notice is outside the available history. Open COGNIX to send it again.' : status === 401 ? 'The bot token is invalid. Check it in BotFather.' : status === 409 ? 'This bot already has a connection. Check Telegram or try another bot.' : status === 400 ? 'Check the bot token and try again.' : 'The connection could not be checked. Try again.';
-      reply(status, { message });
+      const message = pathForError(request) === '/check' ? diagnostic(error).message : error.code === 'history-unavailable' ? 'This notice is outside the available history. Open COGNIX to send it again.' : status === 401 ? 'The bot token is invalid. Check it in BotFather.' : status === 409 ? 'This bot already has a connection. Check Telegram or try another bot.' : status === 400 ? 'Check the bot token and try again.' : 'The connection could not be checked. Try again.';
+      reply(status, { message, ...(pathForError(request) === '/check' ? {problemCode:diagnostic(error).code} : {}) });
     }
   });
 }
+
+function pathForError(request) { return String(request.url || '').split('?')[0]; }

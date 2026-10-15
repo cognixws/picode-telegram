@@ -416,3 +416,23 @@ test('full-text forwarding requires the literal saved boolean true', async t => 
   f.channel.host.request = async (path, body) => path.endsWith('/settings') ? {values:{full_text:true},secrets:{bot_token:'token'}} : request(path, body);
   await f.channel.configure(); assert.equal(f.channel.fullText, true);
 });
+
+test('a failed host read is not diagnosed as a rejected Telegram token',async t=>{
+  const f=await fixture(t);
+  f.channel.host={request:async()=>{throw new ApiError(401,'PRIVATE_CANARY');}};
+  await assert.rejects(f.channel.check());
+  assert.equal(f.channel.status().problemCode,'host-refused');
+  assert(!f.channel.status().problem.includes('PRIVATE_CANARY'));
+});
+test('unsupported hosts are refused before fetching protected settings',async t=>{
+  const f=await fixture(t);let settings=0;
+  f.channel.host={request:async path=>{if(path.endsWith('/settings'))settings++;return {channelProtocol:0};}};
+  await assert.rejects(f.channel.check());
+  assert.equal(settings,0);assert.equal(f.channel.status().problemCode,'host-incompatible');
+});
+test('missing token is an actionable setup step and successful check clears the old error',async t=>{
+  const f=await fixture(t);
+  f.channel.setProblem(new ApiError(401,'PRIVATE_CANARY'));
+  f.channel.host={request:async path=>path.endsWith('/me')?{channelProtocol:1,channel:{name:'Telegram'},restoreGeneration:''}:{secrets:{},values:{}}};
+  await f.channel.check();assert.equal(f.channel.status().state,'needs-token');assert.equal(f.channel.status().problem,'');assert.equal(f.channel.status().problemCode,'');
+});

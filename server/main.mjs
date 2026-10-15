@@ -18,7 +18,7 @@ const server = createServer(channel, {
 });
 server.listen(Number(process.env.PICODE_EXT_PORT), '127.0.0.1', async () => {
   try { await channel.configure(); }
-  catch (error) { channel.problem = error.code === 'host-version' ? error.message : error.status === 409 ? 'This bot already has another connection. Check Telegram or use another bot.' : 'Check your bot token in extension settings.'; }
+  catch (error) { channel.setProblem(error); }
   channel.start();
 });
 for (const signal of ['SIGTERM', 'SIGINT']) process.once(signal, () => {

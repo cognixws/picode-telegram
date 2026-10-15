@@ -1,7 +1,7 @@
 {
   "id": "telegram",
   "name": "Telegram",
-  "version": "0.1.3",
+  "version": "0.2.0",
   "apiVersion": 3,
   "publisher": "COGNIX[WS]",
   "description": "Receive questions and results, answer your Inbox and talk to your agents from one private Telegram chat.",

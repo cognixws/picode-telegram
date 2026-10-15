@@ -100,3 +100,17 @@ persisted credential belongs to the configured restart receipt. The native
 Open Telegram click did not expose a controllable tab to this agent; its cause
 is unverified and the owner manual command remains available. No active pairing
 code or real token was captured.
+
+## V2-1 setup candidate — 2026-10-15
+
+The candidate adds bounded host/provider/token diagnostics and explicit token/pairing
+steps with expiry/copy guidance. Reported npm test: 51 PASS, including the real
+CA-issued TLS fixture. All eight desktop/actual-mobile token-free scratch 8474
+screenshots were read and passed visual review with overlay audits ok. Statuses
+and pairing commands were simulated; no new real-bot failure acceptance is claimed.
+The initial capture set failed state coverage because same-URL navigation retained
+the mounted iframe; explicit reload and expected-state waits corrected the captures.
+See [the V2-1 handoff](handoff/2026-10-15-v2-setup.md) for states, evidence and limits.
+This supersedes the earlier no-V2-code planning checkpoint only for setup work;
+no outbound tool family, inbound Assistant entry, version 0.2 publication or
+deployed-dev installation is established by this receipt.
