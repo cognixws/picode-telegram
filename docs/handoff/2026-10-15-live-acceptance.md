@@ -12,3 +12,5 @@ Fixture history: initial to=Owner send failed under existing reply-only owner se
 Limits: sequential duplication is not a simultaneous race; strangers/groups, webhook conflict, provider outage/rate-limit, configured backup restore, other CLIs, native/WebView2 and physical-phone acceptance remain unverified.
 visual-review: no new screenshot verdict; live browser observations above are bounded behavior receipts. Earlier synthetic desktop/mobile copy captures passed separately.
 Partial V1 acceptance only; portable extension credentials and remaining core A01–A20 rows stay open. No source change or new publication/install was performed by this docs session.
+
+Later owner decision (2026-10-15): V1 accepted with retained validation debt; residual checks and setup/routing improvements carry into Telegram-only V2 planning. Default-off channel tools and separate inbound Assistant admission are planned, not implemented; no new adapter. Core decision: ADR-0329 and docs/plans/channels-v2.md.

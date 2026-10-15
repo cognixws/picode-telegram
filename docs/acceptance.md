@@ -1,8 +1,11 @@
 # Channels V1 adapter acceptance
 
-Status: partial live acceptance. The core plan in `docs/plans/channels-v1-completion.md`
+Status: V1 accepted by the owner on 2026-10-15 with retained validation debt. The core plan in `docs/plans/channels-v1-completion.md`
 owns A01–A20 and the final integration receipt. The 47 adapter tests pass;
-simulations and the bounded real-bot receipt below do not establish complete V1 acceptance.
+simulations and the bounded real-bot receipt below do not establish PASS for every acceptance row.
+The owner carried residual validation and setup/routing improvements into a
+Telegram-only V2 plan, alongside default-off channel tools and separately
+enabled inbound Assistant conversations. No V2 code or new adapter is included.
 
 | Conditions | Expected action | Current evidence |
 |---|---|---|

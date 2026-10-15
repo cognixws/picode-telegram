@@ -8,9 +8,10 @@ Published with owner authorization at [cognixws/picode-telegram](https://github.
 Version 0.1.3 has 47 adapter tests passing. Owner-authorized dev acceptance
 passed 13 real Telegram/managed Pi checks: private pairing, Inbox option/text
 answers, bidirectional Messages/Reply, channel pause/resume, configured extension
-restart and stopped-recipient refusal. This is partial V1 acceptance; strangers,
+restart and stopped-recipient refusal. The owner accepted V1 on 2026-10-15 with retained validation debt; strangers,
 concurrent races, provider failures, configured restore and native/physical-phone
-acceptance remain unverified. Revisions, digest and limits: [acceptance](docs/acceptance.md).
+acceptance remain unverified and carry into Telegram-only V2 planning. No V2
+code or additional adapter is included. Revisions, digest and limits: [acceptance](docs/acceptance.md).
 
 Requires PiCode extension manifest version 3 (ADR-0327), the Channels V1 Host
 API (`channelProtocol: 1`) and Node.js 24
