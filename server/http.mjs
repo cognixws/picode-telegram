@@ -11,7 +11,7 @@ export class ApiError extends Error {
 
 // Never expose request URLs, tokens, response bodies or transport exceptions
 // in logs. Redirects are errors; only the named endpoint receives a request.
-export function jsonRequest(url, { method = 'GET', body, headers = {}, ca, timeout = 30_000, acceptErrorBody = false, maxBytes = 2 * 1024 * 1024 } = {}) {
+export function jsonRequest(url, { method = 'GET', body, headers = {}, ca, allowPartialTrustChain = false, timeout = 30_000, acceptErrorBody = false, maxBytes = 2 * 1024 * 1024 } = {}) {
   return new Promise((resolveResult, reject) => {
     let settled = false;
     const finish = (fn, value) => { if (settled) return; settled = true; clearTimeout(deadline); fn(value); };
@@ -19,7 +19,7 @@ export function jsonRequest(url, { method = 'GET', body, headers = {}, ca, timeo
     const transport = url.protocol === 'https:' ? https : http;
     const bytes = body === undefined ? undefined : Buffer.from(JSON.stringify(body));
     const request = transport.request(url, {
-      method, ca, headers: { ...headers, ...(bytes ? { 'Content-Type': 'application/json', 'Content-Length': bytes.length } : {}) },
+      method, ca, allowPartialTrustChain, headers: { ...headers, ...(bytes ? { 'Content-Type': 'application/json', 'Content-Length': bytes.length } : {}) },
     }, response => {
       const chunks = []; let size = 0;
       response.on('data', chunk => {
@@ -49,11 +49,13 @@ export class HostAPI {
     this.url = new URL(url);
     if (!['http:', 'https:'].includes(this.url.protocol) || !['localhost', '127.0.0.1', '[::1]'].includes(this.url.hostname)) throw new Error('PiCode must provide its loopback address.');
     this.headers = { 'X-PiCode-Extension-Token': token };
+    // The host-supplied local certificate can be CA-issued (for example mkcert).
+    // Trust that explicit certificate while retaining TLS signature/name checks.
     if (this.url.protocol === 'https:') this.ca = readFileSync(resolve(dataDir, '../../..', 'cert.pem'));
   }
   request(path, body) {
     if (!path.startsWith('/api/ext/v1/')) throw new Error('Only the extension Host API may be used.');
-    return jsonRequest(new URL(path, this.url), { body, method: body === undefined ? 'GET' : 'POST', headers: this.headers, ca: this.ca, maxBytes: 32 * 1024 * 1024 });
+    return jsonRequest(new URL(path, this.url), { body, method: body === undefined ? 'GET' : 'POST', headers: this.headers, ca: this.ca, allowPartialTrustChain: !!this.ca, maxBytes: 32 * 1024 * 1024 });
   }
 }
 

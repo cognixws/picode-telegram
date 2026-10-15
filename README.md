@@ -115,3 +115,7 @@ is reported as `pairing` in both the directory and this extension page.
 The bundled app icon is the [official Telegram logo](https://telegram.org/tour/screenshots),
 served locally for the extension tile and page favicon. This extension is not
 an official Telegram product.
+
+The HTTPS Host API trusts the locally provided COGNIX certificate, including
+CA-issued development certificates, with certificate and hostname validation
+enabled. Provider HTTPS continues to use the standard trust roots.
