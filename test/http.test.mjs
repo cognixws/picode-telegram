@@ -75,3 +75,22 @@ test('Host HTTPS accepts its explicit CA-issued leaf and rejects other certifica
   await assert.rejects(jsonRequest(new URL(url),{ca:readFileSync(join(dir,'other.pem')),allowPartialTrustChain:true}));
   assert.equal(calls,1,'only the explicitly trusted certificate with the correct name received a request');
 });
+
+
+test('malformed provider success cannot turn a possibly sent message into a known refusal',async()=>{
+ for(const response of [null,{},true,{ok:true},{ok:true,result:{}},{ok:true,result:{message_id:'123'}}]) {
+   const api=new TelegramAPI('synthetic',{request:async()=>response});
+   await assert.rejects(api.call('sendMessage',{text:'fixture'}),error=>error.uncertain===true && error.status===502);
+ }
+ const api=new TelegramAPI('synthetic',{request:async()=>({ok:true,result:{message_id:123}})});
+ assert.deepEqual(await api.call('sendMessage',{text:'fixture'}),{message_id:123});
+});
+
+test('Host API v2 exposes only the four explicit extension doors',async t=>{
+ const {HostAPI}=await import('../server/http.mjs');let calls=0;
+ const origin=await server(t,(_,res)=>{calls++;res.end('{"fixture":true}');});
+ const api=new HostAPI({url:origin,token:'synthetic',dataDir:'.'});
+ for(const path of ['/api/ext/v2/channel/session','/api/ext/v2/assistants','/api/ext/v2/assistants/messages','/api/ext/v2/assistants/replies/check']) assert.deepEqual(await api.request(path),{fixture:true});
+ for(const path of ['/api/ext/v2/settings','/api/channels/access','/api/assistants','/api/ext/v2/assistants/../settings']) assert.throws(()=>api.request(path));
+ assert.equal(calls,4);
+});

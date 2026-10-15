@@ -15,18 +15,20 @@ export function createServer(channel, { secret, verify }) {
       let size = 0; const chunks = [];
       for await (const chunk of request) {
         size += chunk.length;
-        if (size > 16 * 1024) { reply(413, { message: 'This request is too large.' }); return; }
+        if (size > (path==='/v2/send'?112:16) * 1024) { reply(413, { message: 'This request is too large.' }); return; }
         chunks.push(chunk);
       }
       let body;
       try { body = JSON.parse(Buffer.concat(chunks).toString() || '{}'); }
       catch { reply(400, { message: 'This request could not be read.' }); return; }
-      if (path === '/settings/check') { await verify(body); reply(200, { valid: true }); }
+      if (path === '/v2/send') reply(200,await channel.v2.send(body));
+      else if (path === '/v2/receipt') reply(200,channel.v2.receipt(body));
+      else if (path === '/settings/check') { await verify(body); reply(200, { valid: true }); }
       else if (path === '/check') reply(200, await channel.check());
       else if (path === '/pair-code') reply(200, await channel.pairingCode());
-      else if (path === '/pause' && typeof body.paused === 'boolean') reply(200, channel.pause(body.paused));
+      else if (path === '/pause' && typeof body.paused === 'boolean') { channel.pause(body.paused); await channel.v2.sync(); reply(200,channel.status()); }
       else if (path === '/retry-notice') reply(200, await channel.retryNotice());
-      else if (path === '/disconnect') reply(200, channel.disconnect());
+      else if (path === '/disconnect') { channel.disconnect(); await channel.v2.sync(); reply(200,channel.status()); }
       else if (path === '/acknowledge') { channel.problem = ''; channel.warning = ''; reply(200, channel.status()); }
       else reply(404, { message: 'This action is unavailable.' });
     } catch (error) {

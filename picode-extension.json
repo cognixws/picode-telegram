@@ -1,13 +1,17 @@
 {
   "id": "telegram",
   "name": "Telegram",
-  "version": "0.2.0",
-  "apiVersion": 3,
+  "version": "0.3.0",
+  "apiVersion": 4,
   "publisher": "COGNIX[WS]",
-  "description": "Receive questions and results, answer your Inbox and talk to your agents from one private Telegram chat.",
+  "description": "Receive questions, talk to agents and Assistants, and allow channel tools in one private Telegram chat.",
   "channel": {
     "name": "Telegram",
-    "statusPath": "/status"
+    "statusPath": "/status",
+    "protocol": 2,
+    "sendPath": "/v2/send",
+    "receiptPath": "/v2/receipt",
+    "textSetting": "full_text"
   },
   "process": {
     "command": "node",
@@ -24,7 +28,10 @@
     "inbox:read",
     "inbox:answer",
     "messages:read",
-    "messages:owner"
+    "messages:owner",
+    "channels:send",
+    "assistants:read",
+    "assistants:message"
   ],
   "settings": [
     {
@@ -38,7 +45,7 @@
       "label": "Include message text",
       "type": "boolean",
       "default": false,
-      "description": "Send masked message bodies as well as titles. Long text is shortened."
+      "description": "Send masked message bodies as well as titles. Required for Assistant conversations and channel tools. Long notices are shortened."
     }
   ],
   "storage": {

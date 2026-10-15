@@ -1,11 +1,11 @@
-# Channels V1 adapter acceptance
+# Channels adapter acceptance
 
 Status: V1 accepted by the owner on 2026-10-15 with retained validation debt. The core plan in `docs/plans/channels-v1-completion.md`
 owns A01–A20 and the final integration receipt. The 47 adapter tests pass;
 simulations and the bounded real-bot receipt below do not establish PASS for every acceptance row.
 The owner carried residual validation and setup/routing improvements into a
 Telegram-only V2 plan, alongside default-off channel tools and separately
-enabled inbound Assistant conversations. No V2 code or new adapter is included.
+enabled inbound Assistant conversations. That planning checkpoint included no V2 runtime code; the current V2 candidate is recorded separately below.
 
 | Conditions | Expected action | Current evidence |
 |---|---|---|
@@ -114,3 +114,34 @@ See [the V2-1 handoff](handoff/2026-10-15-v2-setup.md) for states, evidence and 
 This supersedes the earlier no-V2-code planning checkpoint only for setup work;
 no outbound tool family, inbound Assistant entry, version 0.2 publication or
 deployed-dev installation is established by this receipt.
+
+
+## V2 runtime candidate — 2026-10-15
+
+Core ADR-0330/API 4 landed at `69a9af007` with official catch-up/close and full
+main CI PASS in 190 seconds. Core gates include actual fake-Brain canonical
+Assistant turns, launch/turn capability boundaries, default-off families,
+separate workspace-bound admission, caller isolation, operation/restore fixtures
+and final-dispatch revocation. Fourteen token-free desktop/mobile host-access
+screenshots passed independent visual review. This is local/synthetic evidence;
+the development daemon has not been deployed to this core yet.
+
+Adapter 0.3.0 implements protocol 2, `/assistants`, one typed CLI/Assistant
+selection, canonical Reply routing, stable tool receipts and independent domain
+migration/recovery fixtures. It retains the accepted V1 transport and setup.
+[The protocol contract](protocol-v2.md) owns its limits and decision table.
+New operation keys never use V1's notice retries, explicit text is not silently
+truncated, and Include message text is rechecked at provider dispatch.
+
+Adversarial execution found two gaps beyond the planning review: capacity could
+fail after accepting an Assistant input, and a temporary host check could lose
+an unsent automatic response. Input capacity is now reserved before the host
+effect; known-no-effect transient reply failures retain a durable canonical
+retry. Negative/recovery tests cover both. Snapshots reconcile only persisted
+pending V2 input IDs. These corrections do not establish real provider acceptance.
+
+Final adapter test/integration/package receipts are recorded in the V2 runtime
+handoff. Deployment, installed API-4 dev digest and real outbound CLI/Assistant
+plus `/assistants` bot round trips remain pending until the owner deploys the
+matching core. Real stranger/group, configured restore, provider failure,
+WebView2/native and physical-phone A-rows stay UNVERIFIED as described above.

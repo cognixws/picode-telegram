@@ -1,3 +1,4 @@
+import { ChannelV2 } from './v2.mjs';
 import { diagnostic } from './problems.mjs';
 import { createHash } from 'node:crypto';
 import { ApiError } from './http.mjs';
@@ -19,6 +20,7 @@ export class Channel {
     this.ledger = ledger; this.host = host; this.makeBot = makeBot; this.now = now;
     this.bot = null; this.botName = ''; this.problem = ''; this.problemCode = ''; this.warning = ''; this.fullText = false;
     this.publicURL = ''; this.stopped = false; this.lastSend = 0; this.sendChain = Promise.resolve();
+    this.protocol = 1; this.sendPending = 0; this.v2 = new ChannelV2(this);
     this.edits = new Set(); this.errors = new Map();
     this.spacing = spacing; this.lastSnapshot = 0; this.verifying = false;
   }
@@ -29,20 +31,21 @@ export class Channel {
     const problemCode = this.ledger.get('conflict', false) ? 'poller-conflict' : this.ledger.get('authentication_required', false) ? 'token-rejected' : this.ledger.get('chat_blocked', false) ? 'chat-blocked' : this.problemCode;
     return { state, problemCode, botName: this.botName, paired: !!pair, paused: this.ledger.get('paused', false), uncertain: this.ledger.uncertain(), retryAvailable: !!this.ledger.uncertainNotice(), problem: this.ledger.get('conflict', false) ? 'Another connection is using this bot. Stop it, then check this connection.' : this.ledger.get('authentication_required', false) ? 'Disconnected: check your bot token in COGNIX.' : this.ledger.get('chat_blocked', false) ? 'Unblock this bot in Telegram, then check the connection.' : problem || this.warning, identity: pair ? { user: pair.user, chat: pair.chat } : null, restored: this.ledger.get('restored', false), publicLinkAvailable: !!this.publicURL };
   }
-  connectionBlocked() { return this.verifying || !!this.problem || ['conflict', 'authentication_required', 'chat_blocked'].some(key => this.ledger.get(key, false)); }
+  connectionBlocked() { return this.verifying || !!this.problem || this.v2.blocked || ['conflict', 'authentication_required', 'chat_blocked'].some(key => this.ledger.get(key, false)); }
   async hostRead(path) {
     try { return await this.host.request(path); }
     catch (error) { error.stage = 'host'; throw error; }
   }
   async configure() {
     const me = await this.hostRead('/api/ext/v1/me');
-    if (me.channelProtocol !== 1 || !me.channel || typeof me.restoreGeneration !== 'string') throw new ApiError(409, 'Update COGNIX before connecting this channel.', { code: 'host-version' });
+    if (![1,2].includes(me.channelProtocol) || !me.channel || typeof me.restoreGeneration !== 'string') throw new ApiError(409, 'Update COGNIX before connecting this channel.', { code: 'host-version' });
+    this.protocol = me.channelProtocol;
     this.ledger.restoreGeneration(me.restoreGeneration);
     const settings = await this.hostRead('/api/ext/v1/settings');
     this.publicURL = this.validPublicURL(me.publicUrl || '');
         this.fullText = settings.values?.full_text === true;
     const token = settings.secrets?.bot_token;
-    if (!token) { this.bot = null; this.problem = ''; this.problemCode = ''; return; }
+    if (!token) { this.bot = null; this.problem = ''; this.problemCode = ''; await this.v2.sync(); return; }
     const bot = this.makeBot(token);
     const identity = await bot.call('getMe');
     const webhook = await bot.call('getWebhookInfo');
@@ -50,6 +53,7 @@ export class Channel {
     this.ledger.bindBot(identity.id);
     this.ledger.set('authentication_required', false);
     this.bot = bot; this.botName = identity.username || '';
+    await this.v2.sync();
     const lastPoll = this.ledger.get('last_poll', 0);
     if (lastPoll && this.now() - lastPoll > 86400_000) this.warning = 'This computer was offline for over a day. Some Telegram messages may be missing.';
   }
@@ -89,11 +93,12 @@ export class Channel {
   }
   pause(paused) {
     this.ledger.set('paused', !!paused);
+    if (this.v2.enabled) this.v2.blocked=true;
     const lastPoll = this.ledger.get('last_poll', 0);
     if (!paused && lastPoll && this.now() - lastPoll > 86400_000) this.warning = 'This computer was offline for over a day. Some Telegram messages may be missing.';
     return this.status();
   }
-  disconnect() { this.ledger.unpair(); this.ledger.set('paused', true); return this.status(); }
+  disconnect() { if(this.v2.enabled) this.v2.blocked=true; this.ledger.unpair(); this.ledger.set('paused', true); return this.status(); }
   async retryNotice() {
     const generation = this.ledger.get('pair')?.generation;
     this.assertActive(generation);
@@ -122,7 +127,8 @@ export class Channel {
     this.assertActive(generation);
     return this.host.request(path, body);
   }
-  send(method, body, generation = this.ledger.get('pair')?.generation) {
+  send(method, body, generation = this.ledger.get('pair')?.generation, beforeSend) {
+    this.sendPending++;
     const run = async () => {
       this.assertActive(generation);
       const delay = Math.max(0, this.lastSend + this.spacing - this.now());
@@ -130,19 +136,21 @@ export class Channel {
       this.assertActive(generation);
       const retryAt = this.ledger.get('send_retry_at', 0);
       if (retryAt > this.now()) throw new ApiError(429, 'Telegram needs more time.', { retryAfter: Math.ceil((retryAt - this.now()) / 1000) });
+      if (beforeSend) await beforeSend(body);
+      this.assertActive(generation);
       this.lastSend = this.now();
       return this.bot.call(method, body);
     };
-    const result = this.sendChain.then(run);
+    const result = this.sendChain.then(run).finally(() => { this.sendPending--; });
     this.sendChain = result.catch(() => {});
     return result;
   }
-  async notice(text, extra = {}, generation = this.ledger.get('pair')?.generation) {
+  async notice(text, extra = {}, generation = this.ledger.get('pair')?.generation, beforeSend) {
     const pair = this.ledger.get('pair');
     if (!pair) return;
     const link = this.link('');
     if (link && !extra.reply_markup) extra = {...extra, reply_markup:{inline_keyboard:[[link]]}};
-    return this.send('sendMessage', { chat_id: pair.chat, text: clip(text), ...extra }, generation);
+    return this.send('sendMessage', { chat_id: pair.chat, text: clip(text), ...extra }, generation, beforeSend);
   }
   async updatesOnce() {
     if (!this.bot || this.ledger.get('paused', false) || this.connectionBlocked()) return;
@@ -167,7 +175,8 @@ export class Channel {
       const start = /^\/start(?:@\w+)?\s+([A-Za-z0-9_-]+)$/.exec(message.text || '');
       if (start && this.ledger.pair({ code: start[1], chat: message.chat, user, messageTime: message.date })) {
         finish('paired');
-        await this.notice('Connected to COGNIX. Use /agents to choose an agent, or reply to an Inbox question.');
+        await this.v2.sync();
+        await this.notice('Connected to COGNIX. Use /agents to choose an agent, /assistants for admitted Assistants, or reply to an Inbox question.');
         return;
       }
       finish('ignored'); return;
@@ -191,7 +200,7 @@ export class Channel {
       finish(error.uncertain ? 'uncertain' : 'refused');
       if (error.code === 'stale-pair') return;
 
-      const text = error.uncertain ? 'The delivery could not be confirmed. Check it in COGNIX before sending again.' : error.status === 409 ? 'This needs your attention in COGNIX, or it has already been answered.' : 'This action could not be completed. Open COGNIX and try there.';
+      const text = error.code === 'text-disabled' ? 'Turn on Include message text in Telegram settings in COGNIX.' : error.uncertain ? 'The delivery could not be confirmed. Check it in COGNIX before sending again.' : error.status === 409 ? 'This needs your attention in COGNIX, or it has already been answered.' : 'This action could not be completed. Open COGNIX and try there.';
       await this.notice(text, {}, generation).catch(() => {});
       return;
     }
@@ -199,8 +208,9 @@ export class Channel {
       const sent = await this.notice(action.text, action.keyboard ? { reply_markup: { inline_keyboard: action.keyboard } } : {}, generation).catch(error => { this.warning = error.uncertain ? 'A chat receipt could not be confirmed. Check COGNIX before sending again.' : 'A chat receipt could not be sent. Open COGNIX to check the result.'; return null; });
       if (sent && action.keyboard) for (const row of action.keyboard) for (const button of row) if (button.callback_data) this.ledger.bindHandle(button.callback_data, sent.message_id);
       if (sent && action.receipt) {
-        const key = this.key('receipt', action.receipt);
-        if (this.ledger.claimDelivery(key, 'receipt', action.receipt)) this.ledger.settleDelivery(key, 'sent', sent.message_id);
+        const kind = action.receiptKind || 'receipt';
+        const key = this.key(kind, action.receipt);
+        if (this.ledger.claimDelivery(key, kind, action.receipt)) this.ledger.settleDelivery(key, 'sent', sent.message_id);
       }
     }
   }
@@ -208,9 +218,11 @@ export class Channel {
     this.assertActive(generation);
     if (update.callback_query) {
       const data = update.callback_query.data || '';
+      if (this.v2.enabled && data.startsWith('t:')) return this.v2.select(data,message.message_id,generation);
       const button = this.ledger.resolveButton(data, message.message_id);
       if (!button) throw new ApiError(409, 'This button is no longer available.');
       if (data.startsWith('a:')) {
+        if (this.v2.enabled) throw new ApiError(409,'Choose an agent again.');
         const id = button.item_id;
         const agents = await this.agents();
         const agent = agents.find(a => a.id === id);
@@ -226,9 +238,10 @@ export class Channel {
     }
     const text = message.text?.trim();
     if (!text) return { text: 'Only text reaches agents for now. Open COGNIX for files or audio.' };
+    if (this.v2.enabled && (text === '/assistants' || text.startsWith('/assistants@'))) return this.v2.choose('assistant');
     if (text === '/agents' || text.startsWith('/agents@')) return this.chooseAgent();
-    if (text === '/help' || text === '/start') return { text: 'Use /agents to choose an agent. Reply to a question to answer it, or reply to an agent message to continue that conversation.' };
-    if (text.startsWith('/')) return { text: 'Use /agents to choose an agent, or reply to an Inbox question.' };
+    if (text === '/help' || text === '/start') return { text: 'Use /agents for running agents or /assistants for admitted Assistants. Reply to a question to answer it, or reply to an agent message to continue that conversation.' };
+    if (text.startsWith('/')) return { text: 'Use /agents to choose an agent, /assistants for admitted Assistants, or reply to an Inbox question.' };
     const mapping = message.reply_to_message && this.ledger.mapping(message.reply_to_message.message_id);
     if (message.reply_to_message && !mapping) return { text: 'This message is no longer linked. Use /agents to choose who to write to, or open the question in COGNIX.' };
     if (mapping?.kind === 'inbox') {
@@ -236,11 +249,19 @@ export class Channel {
       if (!item?.answerable) throw new ApiError(409, 'This item is not answerable here.');
       return this.answer(mapping.source_id, text, generation);
     }
+    if (this.v2.enabled && ['assistant','assistant-receipt'].includes(mapping?.kind)) return this.v2.input(update,text,generation,mapping.source_id);
+    if (mapping && !['inbox','message','receipt'].includes(mapping.kind)) return {text:'This message has no conversation link. Use /agents or /assistants to choose who to write to.'};
     if (mapping?.kind === 'message' || mapping?.kind === 'receipt') {
       const result = await this.hostWrite('/api/ext/v1/messages/owner', { text, replyTo: mapping.source_id }, generation);
       return this.sentReceipt(result);
     }
-    const to = this.ledger.get('selected_agent');
+    if (this.v2.enabled) {
+      await this.v2.sync();
+      const target = this.ledger.get('selected_target');
+      if (target && target.generation !== this.ledger.get('host_generation')) throw new ApiError(409,'Choose a current target again.');
+      if (target?.kind === 'assistant') return this.v2.input(update,text,generation);
+    }
+    const to = this.v2.enabled ? this.ledger.get('selected_target')?.id : this.ledger.get('selected_agent');
     if (!to) return this.chooseAgent('Who is this for?');
     const result = await this.hostWrite('/api/ext/v1/messages/owner', { to, text }, generation);
     return this.sentReceipt(result);
@@ -259,6 +280,7 @@ export class Channel {
     return (result.agents || []).filter(a => a.running && a.id && !a.id.startsWith('assistant:'));
   }
   async chooseAgent(text = 'Choose an agent for your messages.') {
+    if (this.v2.enabled) return this.v2.choose('agent',text);
     const agents = await this.agents();
     if (!agents.length) return { text: 'No agents are running. Open COGNIX to start one.' };
     const keyboard = agents.slice(0, 20).map(a => [{ text: clip(a.name, 60), callback_data: this.ledger.button(a.id, -1) }]);
@@ -294,8 +316,14 @@ export class Channel {
     const key = this.key('inbox', item.id);
     const row = this.ledger.delivery(key);
     const title = clip(item.title, 200);
-    const text = clip(`${title}${this.fullText && item.body ? '\n\n' + item.body : ''}${item.state === 'done' ? '\n\nAnswered in COGNIX.' : item.answerable ? '\n\nReply to answer.' : '\n\nOpen COGNIX to act on this.'}`);
-    const revision = digest(text + JSON.stringify(item.options || []));
+    if (this.v2.enabled) await this.v2.textEnabled();
+    const makeText = () => clip(`${title}${this.fullText && item.body ? '\n\n' + item.body : ''}${item.state === 'done' ? '\n\nAnswered in COGNIX.' : item.answerable ? '\n\nReply to answer.' : '\n\nOpen COGNIX to act on this.'}`);
+    const text = makeText();
+    let revision = digest(text + JSON.stringify(item.options || []));
+    const refresh = async body => {
+      if (this.v2.enabled) await this.v2.textEnabled();
+      body.text=makeText(); revision=digest(body.text+JSON.stringify(item.options||[]));
+    };
     if (row?.state === 'sent' && (row.revision === revision || this.edits.has(key))) return;
     if (row && row.state !== 'sent' && (row.state !== 'retry' || row.retry_at > this.now())) return;
     const keyboard = [];
@@ -307,7 +335,7 @@ export class Channel {
     if (row?.state === 'sent') {
       this.edits.add(key);
       try {
-        await this.send('editMessageText', { chat_id: pair.chat, message_id: row.telegram_id, text, reply_markup: { inline_keyboard: keyboard } });
+        await this.send('editMessageText', { chat_id: pair.chat, message_id: row.telegram_id, text, reply_markup: { inline_keyboard: keyboard } },pair.generation,refresh);
         for (const buttons of keyboard) for (const button of buttons) if (button.callback_data) this.ledger.bindHandle(button.callback_data, row.telegram_id);
         this.ledger.settleDelivery(key, 'sent', row.telegram_id, 0, revision);
       } catch { this.warning = 'A Telegram receipt could not be updated. The answer remains recorded in COGNIX.'; }
@@ -316,12 +344,18 @@ export class Channel {
     }
     if (item.state === 'done' || !this.ledger.claimDelivery(key, 'inbox', item.id)) return;
     try {
-      const message = await this.send('sendMessage', { chat_id: pair.chat, text, reply_markup: { inline_keyboard: keyboard } });
+      const message = await this.send('sendMessage', { chat_id: pair.chat, text, reply_markup: { inline_keyboard: keyboard } },pair.generation,refresh);
       for (const buttons of keyboard) for (const button of buttons) if (button.callback_data) this.ledger.bindHandle(button.callback_data, message.message_id);
       this.ledger.settleDelivery(key, 'sent', message.message_id, 0, revision);
     } catch (error) { this.failedSend(key, error); }
   }
   failedSend(key, error) {
+    if (['text-disabled','reply-revoked'].includes(error.code) || error.stage==='host') {
+      const transient = error.stage==='host' && (!error.status || error.status===429 || error.status>=500);
+      this.ledger.settleDelivery(key, transient?'retry':'failed',null,transient?this.now()+Math.max(5,error.retryAfter||0)*1000:0);
+      this.warning = error.code==='text-disabled' ? 'Assistant replies require Include message text in Telegram settings.' : 'The reply was not sent. Check the current channel access in COGNIX.';
+      return;
+    }
     if (error.code === 'paused') { this.ledger.settleDelivery(key, 'retry'); return; }
     if (error.code === 'stale-pair') { this.ledger.settleDelivery(key, 'historical'); return; }
     if (error.status === 429) {
@@ -336,14 +370,26 @@ export class Channel {
   }
   async forwardMessage(message) {
     if (message.to !== 'owner' || !message.from || typeof message.from === 'string') return;
-    const key = this.key('message', message.id);
-    if (!this.ledger.claimDelivery(key, 'message', message.id)) return;
-    const text = clip(`${message.from.name || 'Agent'} sent a message.${this.fullText ? '\n\n' + message.body : '\n\nOpen COGNIX to read it. You can reply here.'}`);
+    const assistant = message.from.kind === 'assistant';
+    const kind = assistant ? 'assistant' : 'message';
+    const key = this.key(kind, message.id), generation = this.ledger.get('pair')?.generation;
+    if (!this.ledger.claimDelivery(key, kind, message.id)) return;
+    const pair = this.ledger.get('pair');
     const link = this.link('messages');
+    const body = {chat_id:pair?.chat,text:'',...(link?{reply_markup:{inline_keyboard:[[link]]}}:{})};
     try {
-      const result = await this.notice(text, link ? { reply_markup: { inline_keyboard: [[link]] } } : {});
+      const result = await this.send('sendMessage',body,generation,async () => {
+        if (this.v2.enabled) {
+          if (assistant) await this.v2.replyAllowed(message.id,generation);
+          else await this.v2.textEnabled();
+        } else if (assistant) throw new ApiError(403,'Assistant entry requires V2.');
+        body.text = clip(`${message.from.name || 'Agent'} sent a message.${this.fullText ? '\n\n' + message.body : '\n\nOpen COGNIX to read it. You can reply here.'}`);
+      });
       this.ledger.settleDelivery(key, 'sent', result.message_id);
     } catch (error) { this.failedSend(key, error); }
+    // A claimed response (including unknown outcome) is never replayed through
+    // a startup snapshot; known-refused V1 notice retries have their own ledger.
+    if (assistant && message.replyTo) this.ledger.completeInput(message.replyTo);
   }
   async inboxOnce({ wait = 0, snapshot = false } = {}) {
     if (!this.bot || !this.ledger.get('pair') || this.ledger.get('paused', false) || this.connectionBlocked()) return;
@@ -370,7 +416,8 @@ export class Channel {
     const result = await this.host.request('/api/ext/v1/messages' + (cursor !== null ? `?since=${cursor}&wait=${wait}` : ''));
     this.assertActive(generation);
     // Initial and reset snapshots are context, not unsent messages.
-    if (cursor !== null && !result.reset) for (const message of result.messages || []) { this.assertActive(generation); await this.forwardMessage(message); }
+    const pending = new Set(this.ledger.pendingInputs());
+    for (const message of (result.messages || []).filter(message => cursor !== null && !result.reset || message.from?.kind==='assistant' && pending.has(message.replyTo))) { this.assertActive(generation); await this.forwardMessage(message); }
     if (result.reset) this.warning = 'Some message history is no longer available. Open COGNIX to check the conversation.';
     this.ledger.set('messages_cursor', result.cursor);
   }
@@ -397,7 +444,15 @@ export class Channel {
     }
   }
   async reconcileOnce() {
+    await this.v2.sync();
     await this.retryOnce();
+    if (this.v2.enabled && this.ledger.pendingInputs().length) {
+      const pending = new Set(this.ledger.pendingInputs());
+      const generation = this.ledger.get('pair')?.generation;
+      const result = await this.host.request('/api/ext/v1/messages');
+      this.assertActive(generation);
+      for (const message of result.messages || []) if (message.from?.kind==='assistant' && pending.has(message.replyTo)) await this.forwardMessage(message);
+    }
     if (this.now() - this.lastSnapshot >= 60_000) {
       await this.inboxOnce({ snapshot: true });
       this.ledger.prune(); this.lastSnapshot = this.now();

@@ -54,7 +54,7 @@ export class HostAPI {
     if (this.url.protocol === 'https:') this.ca = readFileSync(resolve(dataDir, '../../..', 'cert.pem'));
   }
   request(path, body) {
-    if (!path.startsWith('/api/ext/v1/')) throw new Error('Only the extension Host API may be used.');
+    if (!path.startsWith('/api/ext/v1/') && !['/api/ext/v2/channel/session', '/api/ext/v2/assistants', '/api/ext/v2/assistants/messages', '/api/ext/v2/assistants/replies/check'].includes(path)) throw new Error('Only the extension Host API may be used.');
     return jsonRequest(new URL(path, this.url), { body, method: body === undefined ? 'GET' : 'POST', headers: this.headers, ca: this.ca, allowPartialTrustChain: !!this.ca, maxBytes: 32 * 1024 * 1024 });
   }
 }
@@ -65,10 +65,12 @@ export class TelegramAPI {
   }
   async call(method, body = {}) {
     const data = await this.request(new URL(method, this.base), { method: 'POST', body, timeout: method === 'getUpdates' ? 35_000 : 15_000, acceptErrorBody: true });
+    if (!data || typeof data.ok!=='boolean') throw new ApiError(502,'The provider response could not be confirmed.',{uncertain:true});
     if (!data.ok) {
       const status = Number(data.error_code) || 500;
       throw new ApiError(status, status === 401 ? 'The bot token is no longer valid.' : status === 409 ? 'Another connection is using this bot.' : status === 429 ? 'Telegram asked us to wait.' : 'Telegram refused this action.', { uncertain: status >= 500, retryAfter: Number(data.parameters?.retry_after) || 0 });
     }
+    if (method==='sendMessage' && (!Number.isSafeInteger(data.result?.message_id) || data.result.message_id<=0)) throw new ApiError(502,'The provider receipt could not be confirmed.',{uncertain:true});
     return data.result;
   }
 }

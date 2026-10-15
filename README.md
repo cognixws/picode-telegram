@@ -2,19 +2,16 @@
 
 A local PiCode extension carrying the owner's Inbox and agent Messages to one
 private Telegram chat. Agents keep using `ask_human`, `notify_human` and
-Messages. There is no Channels tool family or direct Assistant entry in V1.
+Messages. V2 adds explicitly granted channel tools and separately admitted
+Assistant conversations, with Telegram as the only provider.
 
 Published with owner authorization at [cognixws/picode-telegram](https://github.com/cognixws/picode-telegram).
-Version 0.2.0 has 51 adapter tests passing. Owner-authorized dev acceptance
-passed 13 real Telegram/managed Pi checks: private pairing, Inbox option/text
-answers, bidirectional Messages/Reply, channel pause/resume, configured extension
-restart and stopped-recipient refusal. The owner accepted V1 on 2026-10-15 with retained validation debt; strangers,
-concurrent races, provider failures, configured restore and native/physical-phone
-acceptance remain unverified and carry into Telegram-only V2 planning. V2 setup diagnostics are included; outbound tools, Assistant entry and additional
-adapters are not included in this setup slice. Revisions, digest and limits: [acceptance](docs/acceptance.md).
+Version 0.3.0 implements the API-4 protocol-2 adapter. The accepted V1 live
+receipt below remains historical; real V2 acceptance requires the matching core
+deployment. The owner accepted V1 on 2026-10-15 with retained validation debt.
+Revisions, tests and limits: [acceptance](docs/acceptance.md).
 
-Requires PiCode extension manifest version 3 (ADR-0327), the Channels V1 Host
-API (`channelProtocol: 1`) and Node.js 24
+Requires PiCode manifest API 4 (ADR-0330), Channels protocol 2 and Node.js 24
 or later. Node is an optional adapter runtime, not a PiCode requirement.
 The implementation uses Node builtins only, including `node:sqlite`; no npm
 packages or hosted relay are required.
@@ -29,10 +26,20 @@ packages or hosted relay are required.
    and open the private bot chat. The paired account/chat identity is shown.
 5. Reply to an Inbox question, tap a supplied option or use `/agents` to select
    a running CLI agent. Replies to agent messages retain their conversation.
+6. For Assistants, turn on **Include message text**, open **Channels → Telegram
+   → Access**, choose the Assistant and an existing workspace, and allow
+   conversations. Then use `/assistants` in Telegram. This is separate from
+   granting outbound tools.
+7. For autonomous sends, enable the default-off **channels** tool family on the
+   chosen CLI/Assistant and grant **Send requested text to you** for Telegram.
+   Launch/relaunch that CLI after enabling the family. Pairing or `/assistants`
+   alone does not enable outbound tools. See [the V2 contract](docs/protocol-v2.md).
 
 Titles and options leave by default. Full message text requires the explicit
 **Include message text** setting and always passes through daemon masking.
-Long notices are shortened with an ellipsis to fit Telegram; open COGNIX for
+V2 Assistant conversations and explicit tool sends require that setting.
+Tool text over 4,096 UTF-16 units refuses; it is never silently truncated.
+Long automatic notices are shortened with an ellipsis to fit Telegram; open COGNIX for
 the complete text.
 Known masking is not complete secret detection. Bot tokens never enter the
 extension iframe, ordinary messages, ledgers or activity logs. Only text is
@@ -54,7 +61,8 @@ loopback URL is sent as an external link.
 | Core delivery paused or raw terminal only | Record the owner's message as held; explain its state; remote transport cannot force terminal keys |
 | Inbox title/options default; snoozed item | Forward current eligible title/options; wait until snooze is due |
 | Duplicate update/event; restart | Durable claim and receipt prevent repeated core mutation or duplicate notice |
-| Known 429 | Wait for the provider's retry deadline; bounded serialized sends; durable retries survive feed cursor progress |
+| Known 429 on a V1 notice | Wait for the provider's retry deadline; bounded serialized sends; durable retries survive feed cursor progress |
+| Known 429 on an explicit V2 tool send | Terminal refusal for that operation; new deliberate IDs respect the retry deadline |
 | Invalid token or blocked bot | Stop effects; keep rejected notices eligible after an explicit owner repair/check |
 | Lost core/provider write response | Preserve uncertain result; check COGNIX/Telegram before any explicit new send |
 | Old reply mapping or changed option | Refuse; never route an unknown reply as a new message |
@@ -84,7 +92,9 @@ and metadata receipts, never token or message bodies. Active delivery and
 button records stop at 10,000; disconnect archives the previous pairing and
 retains at most 2,000 historical delivery receipts. Up to 10,000 recent update
 receipts retain the replay floor. Uncertain active sends are never pruned into
-new automatic attempts. Data kept at uninstall remains subject to the core
+new automatic attempts. V2 tool operation keys live in a separate table, stop
+at 10,000 and are never pruned into another effect; disconnect does not reset
+that history. Data kept at uninstall remains subject to the core
 extension lifecycle.
 
 PiCode backs up the extension domain database. Its independent sealed secret
@@ -111,7 +121,7 @@ Primary provider references: [Bot API](https://core.telegram.org/bots/api),
 [rate guidance](https://core.telegram.org/bots/faq#my-bot-is-hitting-limits-how-do-i-avoid-this),
 [bot privacy](https://core.telegram.org/bots/faq#how-are-bots-different-from-humans).
 
-Manifest v3 status uses the host closed states `needs-token`, `pairing`,
+Manifest API 4 retains the V1 status contract, using the host closed states `needs-token`, `pairing`,
 `connected`, `paused`, `checking` and `error` (core ADR-0327). Pairing readiness
 is reported as `pairing` in both the directory and this extension page.
 

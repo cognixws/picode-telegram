@@ -9,6 +9,7 @@ import { ApiError } from '../server/http.mjs';
 async function fixture(t) {
   const database = new DatabaseSync(':memory:');
   database.exec(readFileSync(new URL('../migrations/001_ledger.sql', import.meta.url), 'utf8'));
+  database.exec(readFileSync(new URL('../migrations/002_channels_v2.sql', import.meta.url), 'utf8'));
   // A file is not needed: share this real migrated SQLite connection.
   const ledger = Object.create(Ledger.prototype);
   let now = 1_800_000_000_000;

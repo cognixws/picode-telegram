@@ -13,6 +13,7 @@ export class Ledger {
     this.now = now;
     this.db.exec('PRAGMA busy_timeout=5000; PRAGMA foreign_keys=ON;');
     if (path !== ':memory:') chmodSync(path, 0o600);
+    this.db.prepare("UPDATE operations SET state='uncertain' WHERE state='dispatching'").run();
     this.db.prepare("UPDATE deliveries SET state='uncertain' WHERE state='dispatching'").run();
     this.db.prepare("UPDATE updates SET state='uncertain' WHERE state='claimed'").run();
   }
@@ -48,8 +49,9 @@ export class Ledger {
     });
   }
   clearPair() {
-    for (const key of ['pair', 'pair_code', 'selected_agent', 'inbox_cursor', 'messages_cursor']) this.db.prepare('DELETE FROM metadata WHERE key=?').run(key);
+    for (const key of ['pair', 'pair_code', 'selected_agent', 'selected_target', 'host_generation', 'inbox_cursor', 'messages_cursor']) this.db.prepare('DELETE FROM metadata WHERE key=?').run(key);
     this.db.prepare('DELETE FROM buttons').run();
+    this.db.prepare('DELETE FROM targets').run();
     this.set('chat_blocked', false);
     this.newUpdateEpoch();
     // A restored or disconnected receipt is evidence, never queued work.
@@ -131,23 +133,71 @@ export class Ledger {
     return handle;
   }
   bindButtons(itemID, telegramID) { this.db.prepare('UPDATE buttons SET telegram_id=? WHERE item_id=?').run(telegramID, itemID); }
-  bindHandle(handle, telegramID) { this.db.prepare('UPDATE buttons SET telegram_id=? WHERE handle=?').run(telegramID, handle); }
+  bindHandle(handle, telegramID) {
+    this.db.prepare('UPDATE buttons SET telegram_id=? WHERE handle=?').run(telegramID, handle);
+    this.db.prepare('UPDATE targets SET telegram_id=? WHERE handle=?').run(telegramID, handle);
+  }
   resolveButton(handle, telegramID) {
     return this.db.prepare('SELECT * FROM buttons WHERE handle=? AND telegram_id=?').get(handle, telegramID);
   }
   uncertainNotice() {
     const prefix = (this.get('pair')?.generation || 'unpaired') + ':';
-    return this.db.prepare("SELECT * FROM deliveries WHERE state='uncertain' AND kind IN ('inbox','message') AND substr(key,1,?)=? ORDER BY changed_at LIMIT 1").get(prefix.length,prefix);
+    return this.db.prepare("SELECT * FROM deliveries WHERE state='uncertain' AND kind IN ('inbox','message','assistant') AND substr(key,1,?)=? ORDER BY changed_at LIMIT 1").get(prefix.length,prefix);
   }
   dueDeliveries(limit = 50) {
     const prefix = (this.get('pair')?.generation || 'unpaired') + ':';
-    return this.db.prepare("SELECT * FROM deliveries WHERE state='retry' AND kind IN ('inbox','message') AND retry_at<=? AND substr(key,1,?)=? ORDER BY retry_at,changed_at LIMIT ?").all(this.now(), prefix.length, prefix, limit);
+    return this.db.prepare("SELECT * FROM deliveries WHERE state='retry' AND kind IN ('inbox','message','assistant') AND retry_at<=? AND substr(key,1,?)=? ORDER BY retry_at,changed_at LIMIT ?").all(this.now(), prefix.length, prefix, limit);
   }
   sentInbox() {
     const prefix = (this.get('pair')?.generation || 'unpaired') + ':';
     return this.db.prepare("SELECT * FROM deliveries WHERE state='sent' AND kind='inbox' AND revision<>'unavailable' AND substr(key,1,?)=? ORDER BY changed_at LIMIT 10000").all(prefix.length, prefix);
   }
-  uncertain() { return this.db.prepare("SELECT count(*) n FROM deliveries WHERE state='uncertain'").get().n + this.db.prepare("SELECT count(*) n FROM updates WHERE epoch=? AND state='uncertain'").get(this.epoch()).n; }
+  uncertain() { return this.db.prepare("SELECT count(*) n FROM operations WHERE state='uncertain'").get().n + this.db.prepare("SELECT count(*) n FROM deliveries WHERE state='uncertain'").get().n + this.db.prepare("SELECT count(*) n FROM updates WHERE epoch=? AND state='uncertain'").get(this.epoch()).n; }
+  operation(id) { return this.db.prepare('SELECT * FROM operations WHERE id=?').get(id); }
+  claimOperation(id, session, payloadHash) {
+    return this.transaction(() => {
+      const row = this.operation(id);
+      if (row) {
+        if (row.session !== session || row.payload_hash !== payloadHash) throw new ApiError(409, 'This operation changed.');
+        return false;
+      }
+      if (this.db.prepare('SELECT count(*) n FROM operations').get().n >= 10000) throw new ApiError(409, 'Operation history is full.', { code:'ledger-full' });
+      this.db.prepare("INSERT INTO operations(id,session,payload_hash,state,changed_at) VALUES(?,?,?,'dispatching',?)").run(id, session, payloadHash, this.now());
+      return true;
+    });
+  }
+  finishOperation(id, state, telegramID = null) {
+    this.db.prepare("UPDATE operations SET state=?,telegram_id=?,changed_at=? WHERE id=? AND state='dispatching'").run(state, telegramID, this.now(), id);
+  }
+  newPicker() {
+    const next = this.get('picker_revision', 0) + 1;
+    this.set('picker_revision', next);
+    this.db.prepare('DELETE FROM targets').run();
+    return next;
+  }
+  targetButton(target, picker) {
+    const handle = 't:' + randomBytes(12).toString('base64url');
+    this.db.prepare('INSERT INTO targets(handle,kind,id,generation,revision,picker,created_at) VALUES(?,?,?,?,?,?,?)').run(handle, target.kind, target.id, target.generation, target.revision, picker, this.now());
+    return handle;
+  }
+  resolveTarget(handle, telegramID, generation) {
+    const row = this.db.prepare('SELECT * FROM targets WHERE handle=? AND telegram_id=? AND generation=? AND picker=? AND created_at>?').get(handle, telegramID, generation, this.get('picker_revision',0), this.now()-600000);
+    return row && {kind:row.kind,id:row.id,generation:row.generation,revision:row.revision};
+  }
+  selectTarget(target) {
+    this.transaction(() => { this.newPicker(); this.set('selected_target', target); this.db.prepare("DELETE FROM metadata WHERE key='selected_agent'").run(); });
+  }
+  bindInput(key, id) {
+    this.db.prepare("UPDATE deliveries SET source_id=?,state='awaiting',changed_at=? WHERE key=? AND state='dispatching'").run(id,this.now(),key);
+  }
+  completeInput(id) {
+    const prefix = (this.get('pair')?.generation || 'unpaired') + ':input:';
+    this.db.prepare("UPDATE deliveries SET state='done',changed_at=? WHERE kind='input' AND source_id=? AND state='awaiting' AND substr(key,1,?)=?").run(this.now(),id,prefix.length,prefix);
+  }
+  pendingInputs() {
+    const prefix = (this.get('pair')?.generation || 'unpaired') + ':input:';
+    return this.db.prepare("SELECT source_id FROM deliveries WHERE state='awaiting' AND substr(key,1,?)=? LIMIT 10000").all(prefix.length,prefix).map(row => row.source_id);
+  }
   prune() {
     this.db.prepare('DELETE FROM updates WHERE (epoch,id) NOT IN (SELECT epoch,id FROM updates ORDER BY received_at DESC,epoch DESC,id DESC LIMIT 10000)').run();
     this.db.prepare("DELETE FROM deliveries WHERE state = 'historical' AND changed_at<? AND key NOT IN (SELECT key FROM deliveries ORDER BY changed_at DESC LIMIT 2000)").run(this.now() - 7 * 86400_000);
