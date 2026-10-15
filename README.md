@@ -4,9 +4,11 @@ A local PiCode extension carrying the owner's Inbox and agent Messages to one
 private Telegram chat. Agents keep using `ask_human`, `notify_human` and
 Messages. There is no Channels tool family or direct Assistant entry in V1.
 
-Draft implementation: provider simulations and isolated UI review are in
-progress. The host's pre-save check and Channels settings surface are implemented on the core
-`feat/channels-v1-setup` branch under ADR-0327; real-bot and live-CLI acceptance remain unverified.
+Local draft: 46 adapter tests and isolated UI review pass. Core checked
+settings, the Channels directory and captured origin landed in `88f93c021`
+under ADR-0327/0328 with full CI green. A dedicated real bot was created and
+authenticated through the protected form; private pairing, live delivery and
+publication remain separate acceptance gates.
 
 Requires PiCode extension manifest version 3 (ADR-0327), the Channels V1 Host
 API (`channelProtocol: 1`) and Node.js 24

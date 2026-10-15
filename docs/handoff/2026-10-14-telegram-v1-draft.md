@@ -11,8 +11,9 @@ Lifecycle JSON: disabling removed the old PID; Keep data preserved the independe
 Mobile Bot settings navigation reached the protected password field without reading or saving values; this is not pre-save provider validation.
 Limits: lifecycle had no token or pairing; other UI states used canned process metadata. No real bot, live CLI, Windows shell or physical-phone acceptance.
 Current draft declares manifest v3 with /settings/check and /status (core ADR-0327); 46 adapter tests PASS again after the declaration change.
-Core options landed; host checker failure/compensation/status tables PASS on feat/channels-v1-setup; real installed no-token adapter and protected-page navigation exercised there.
-Remaining: final core gates/directory visual review, trusted visible origin, live bot/CLI, configured restart/restore, portable credentials and publication authorization.
+Core setup/origin landed in 88f93c021 with full CI PASS in 204s; 34 desktop/mobile Chromium captures PASS, audits ok; channel migration 169 retains Assistant trace 168.
+Remaining: private pairing, real bot/live-CLI round trips, configured restart/restore, native handoff observations, portable credentials and publication authorization.
 V2 channels tools remain absent and default-off by decision; connecting this transport is not an agent tool grant.
-Delivery: external main integration, remote creation/push and publication were not performed.
+Delivery: remote creation/push, publication and deployment were not performed; this remains an unpublished local draft.
 Real setup found/fixed a needs-pairing/pairing contract mismatch; six-state regression PASS. BotFather created @picode_v1_goat_20261014_bot; owner entered the token, no agent secret reads; private pairing/delivery still unverified.
+Installed runtime 286a7b6 / digest 3114da2099d5683277fce57086c02848bada5c90013fafeb8d0c3b0c8c2a0ea2 authenticated the expected bot; a synthetic invalid candidate was refused without reflection; persisted-secret recheck awaits restart.

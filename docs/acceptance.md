@@ -46,9 +46,12 @@ Core runtime version stamp was `0.8.0+18b1857`, with scratch binary SHA-256
 it predates the core integration merges. This establishes that fixture's
 process/data lifecycle, not the current core HEAD or configured-bot recovery.
 
-Remaining delivery gates: Channels directory/protected-form scratch acceptance,
-trusted visible origin, real dedicated bot + live
-CLI, restart/restore/disable receipts, and publication authorization. The
+Core directory/protected-form and trusted-origin scratch acceptance passed
+on desktop/mobile Chromium: 34 images were read with overlay audits ok.
+Core landed in `88f93c021` with full CI green in 204 seconds; migration 169
+keeps captured origin independent of extension removal. Remaining delivery
+gates: private pairing, real bot/live-CLI round trips, configured
+restart/restore/disable receipts, native handoff observations and publication authorization. The
 adapter has no published remote yet. Portable extension credentials remain
 a core backup debt; installed domain data alone does not restore authority.
 
@@ -60,3 +63,13 @@ The running adapter exposed a previously untested state-name mismatch
 (`needs-pairing` versus the host `pairing`); this draft corrects it and covers
 all six status transitions. Private pairing and real deliveries are still
 UNVERIFIED at this checkpoint.
+
+The corrected runtime package (`286a7b6`, installed digest
+`3114da2099d5683277fce57086c02848bada5c90013fafeb8d0c3b0c8c2a0ea2`)
+reports `pairing` through the real host projection and identifies the expected
+test bot. A synthetic well-shaped invalid candidate was refused with HTTP 400
+without reflection; the running valid bot stayed configured. Rechecking the
+persisted credential belongs to the configured restart receipt. The native
+Open Telegram click did not expose a controllable tab to this agent; its cause
+is unverified and the owner manual command remains available. No active pairing
+code or real token was captured.
