@@ -89,9 +89,41 @@ switch authorizes Assistant entry. Lifecycle revisions are opaque signed integer
 versions for tool-authorized inputs, invalidating old pickers when the switch
 changes. The adapter preserves these exactly; it never creates caller grants.
 
+## Private-chat topics (Bot API 9.3, 9.4; core ADR-0376 T4b)
+
+With Threaded Mode on (`getMe.has_topics_enabled`), a message in a topic of
+the private chat (`is_topic_message`, `message_thread_id`) goes to the chosen
+Assistant with a leading `#slug`, the owner's own mark in COGNIX[WS]: the
+core files it in the topic of that name and opens it when new (row 1). The
+slug is the Telegram topic's name written as the core keys names (letters
+and digits, lower case, hyphens, at most 32). A message already starting with
+`#` goes as typed. The adapter learns a topic's name from its
+`forum_topic_created` and `forum_topic_edited` service messages, or from the
+topic it makes. `/topics` reads the Assistant's topics through
+`GET /api/ext/v2/assistants/topics` (`assistants:read`, Include message
+text on) and offers them as buttons; a button opens the topic with
+`createForumTopic` once, or finds the one open. Each input remembers its
+thread, so its receipt and the Assistant's answer return to that topic; a
+message outside topics, and a reply to an earlier message, keep the main
+chat and their canonical binding.
+
+| Conditions | Action |
+|---|---|
+| Threaded Mode off | `/topics` explains it; topic fields are ignored |
+| No Assistant chosen | `/topics` asks for `/assistants` |
+| A message in a known topic | `#slug` + text to the Assistant; receipt and answer in the topic |
+| A message in a topic the adapter never saw named | As typed, main routing (the core's router may choose) |
+| A message in a topic that starts with `#` | As typed |
+| A topic button for an open topic | No second topic; a line in the open one |
+| A button whose slug is not a slug | Refused |
+| Pairing cleared, bot changed or host restored | Topic names and input threads are cleared with the pairing |
+
 ## Persistence and recovery
 
-Migration 002 adds `operations` and `targets` to the existing extension domain
+Migration 003 adds `threads` (a topic's thread and slug) and `input_threads`
+(an input's thread, the newest 2,000); both are cleared with the pairing and
+travel in the same extension-domain database. Migration 002 adds
+`operations` and `targets` to the existing extension domain
 SQLite database; no new file or credential source is introduced. The core's
 extension-domain backup coverage includes both tables, independent of sessions
 and secrets options. The portable-credential exclusion remains unchanged.

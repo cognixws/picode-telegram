@@ -5,8 +5,9 @@ import { ApiError } from './http.mjs';
 
 const hash = value => createHash('sha256').update(value).digest('hex');
 
-// The database contains identities, cursors and receipts, never the bot token
-// or message content. PiCode applies migrations before starting the process.
+// The database contains identities, cursors and receipts, and the names of
+// the private chat's topics (labels the owner chose), never the bot token or
+// message content. PiCode applies migrations before starting the process.
 export class Ledger {
   constructor(path, { now = Date.now } = {}) {
     this.db = new DatabaseSync(path);
@@ -52,6 +53,9 @@ export class Ledger {
     for (const key of ['pair', 'pair_code', 'selected_agent', 'selected_target', 'host_generation', 'inbox_cursor', 'messages_cursor']) this.db.prepare('DELETE FROM metadata WHERE key=?').run(key);
     this.db.prepare('DELETE FROM buttons').run();
     this.db.prepare('DELETE FROM targets').run();
+    // Another chat's topics are not this one's.
+    this.db.prepare('DELETE FROM threads').run();
+    this.db.prepare('DELETE FROM input_threads').run();
     this.set('chat_blocked', false);
     this.newUpdateEpoch();
     // A restored or disconnected receipt is evidence, never queued work.
@@ -111,6 +115,20 @@ export class Ledger {
       if (epoch === this.epoch()) this.set('offset', Math.max(this.get('offset', 0), id + 1));
     });
   }
+  // Private-chat topics (ADR-0376 T4b): a thread's slug, the thread of a
+  // slug, and the thread an input came from.
+  thread(id) { return Number.isSafeInteger(id) ? this.db.prepare('SELECT slug FROM threads WHERE thread_id=?').get(id)?.slug || '' : ''; }
+  threadOf(slug) { return slug ? this.db.prepare('SELECT thread_id FROM threads WHERE slug=? ORDER BY created_at DESC LIMIT 1').get(slug)?.thread_id || 0 : 0; }
+  setThread(id, slug) {
+    if (!Number.isSafeInteger(id) || !slug) return;
+    this.db.prepare('INSERT INTO threads(thread_id,slug,created_at) VALUES(?,?,?) ON CONFLICT(thread_id) DO UPDATE SET slug=excluded.slug').run(id, slug, this.now());
+  }
+  bindInputThread(messageID, thread) {
+    if (!messageID || !Number.isSafeInteger(thread)) return;
+    this.db.prepare('INSERT OR IGNORE INTO input_threads(message_id,thread_id,created_at) VALUES(?,?,?)').run(messageID, thread, this.now());
+    this.db.prepare('DELETE FROM input_threads WHERE message_id NOT IN (SELECT message_id FROM input_threads ORDER BY created_at DESC LIMIT 2000)').run();
+  }
+  inputThread(messageID) { return messageID ? this.db.prepare('SELECT thread_id FROM input_threads WHERE message_id=?').get(messageID)?.thread_id || 0 : 0; }
   delivery(key) { return this.db.prepare('SELECT * FROM deliveries WHERE key=?').get(key); }
   claimDelivery(key, kind, sourceID) {
     const row = this.delivery(key);

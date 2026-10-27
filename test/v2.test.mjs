@@ -12,11 +12,11 @@ import {createServer} from '../server/server.mjs';
 
 const digest = text=>createHash('sha256').update(text).digest('hex');
 const deferred = ()=>{let resolve;const promise=new Promise(r=>{resolve=r;});return {promise,resolve};};
-async function fixture(t) {
+async function fixture(t, {topics=false}={}) {
   const folder=mkdtempSync(join(tmpdir(),'telegram-v2-')), path=join(folder,'data.db');
   t.after(()=>rmSync(folder,{recursive:true,force:true}));
   const db=new DatabaseSync(path);
-  for (const migration of ['001_ledger.sql','002_channels_v2.sql']) db.exec(readFileSync(new URL('../migrations/'+migration,import.meta.url),'utf8'));
+  for (const migration of ['001_ledger.sql','002_channels_v2.sql','003_private_topics.sql']) db.exec(readFileSync(new URL('../migrations/'+migration,import.meta.url),'utf8'));
   db.close();
   let now=1800000000000,fullText=true,providerError,hostFailure,replyAllowed=true,gate;
   const ledger=new Ledger(path,{now:()=>now});t.after(()=>ledger.close());
@@ -32,6 +32,7 @@ async function fixture(t) {
     }
     if(path==='/api/ext/v2/assistants') return {assistants,textEnabled:fullText};
     if(path==='/api/ext/v2/assistants/replies/check') return {allowed:replyAllowed};
+    if(path.startsWith('/api/ext/v2/assistants/topics?')) return {topics:[{id:'t-1',name:'Jingle ideas',state:'open'},{id:'t-2',name:'trip',state:'open'}]};
     if(path==='/api/ext/v1/agents') return {agents:[{id:'cli',name:'CLI Worker',running:true}]};
     if(path.startsWith('/api/ext/v1/messages')) {
       if(body) {writes.push({path,body});return {message:{id:'cli-input',state:'delivered'}};}
@@ -42,11 +43,12 @@ async function fixture(t) {
     throw Error('Unexpected fixture route');
   }};
   const bot={call:async(method,body)=>{
-    if(method==='getMe') return {id:91,username:'fixture_bot'};
+    if(method==='getMe') return {id:91,username:'fixture_bot',...(topics?{has_topics_enabled:true}:{})};
     if(method==='getWebhookInfo') return {url:''};
     if(gate) await gate.promise;
     provider.push({method,body:structuredClone(body)});
     if(providerError) throw providerError;
+    if(method==='createForumTopic') return {message_thread_id:700+provider.length,name:body.name};
     return {message_id:100+provider.length};
   }};
   const c=new Channel({ledger,host,makeBot:()=>bot,now:ledger.now,spacing:0});await c.configure();
@@ -205,6 +207,7 @@ test('independent legacy domain writer upgrades selection once and keeps history
  const path=join(folder,'data.db'),db=new DatabaseSync(path);
  db.exec(readFileSync(new URL('fixtures/legacy-ledger.sql',import.meta.url),'utf8'));
  db.exec(readFileSync(new URL('../migrations/002_channels_v2.sql',import.meta.url),'utf8'));
+ db.exec(readFileSync(new URL('../migrations/003_private_topics.sql',import.meta.url),'utf8'));
  // Fixed recovered row, not produced by claimOperation/finishOperation.
  db.prepare("INSERT INTO operations VALUES(?,?,?,'dispatching',NULL,1800000000000)").run('recovered-op','a'.repeat(64),'b'.repeat(64));db.close();
  const ledger=new Ledger(path);t.after(()=>ledger.close());
@@ -282,4 +285,51 @@ test('tool lifecycle revision is opaque and stale picker cannot survive a switch
  f.ledger.bindHandle(second.keyboard[0][0].callback_data,801);
  f.setAssistants([{id:'as-a',name:'Assistant A',revision:-4,generation:'generation-1'}]);
  await assert.rejects(f.c.v2.select(second.keyboard[0][0].callback_data,801,f.ledger.get('pair').generation),/current target/);
+});
+
+// Private-chat topics (ADR-0376 T4b): a known topic marks the input with its
+// slug and the answer returns there; a topic made in Telegram is learned from
+// its service message; /topics offers the Assistant's topics and a button
+// opens one (once).
+test('a message in a private-chat topic goes to that topic and is answered there',async t=>{
+ const f=await fixture(t,{topics:true});f.select('assistant');
+ await f.c.receive(f.update('',{message_thread_id:55,is_topic_message:true,forum_topic_created:{name:'Jingle ideas'}}));
+ assert.equal(f.ledger.thread(55),'jingle-ideas');
+ await f.c.receive(f.update('make it shorter',{message_thread_id:55,is_topic_message:true}));
+ const write=f.writes.at(-1);
+ assert.equal(write.path,'/api/ext/v2/assistants/messages');assert.equal(write.body.text,'#jingle-ideas make it shorter');
+ assert.equal(f.provider.at(-1).body.message_thread_id,55,'the receipt is in the topic');
+ await f.c.receive(f.update('#trip book the hotel',{message_thread_id:55,is_topic_message:true}));
+ assert.equal(f.writes.at(-1).body.text,'#trip book the hotel','a marked message goes as typed');
+ await f.c.receive(f.update('no topic here'));
+ assert.equal(f.writes.at(-1).body.text,'no topic here');
+ assert.equal(f.provider.at(-1).body.message_thread_id,undefined);
+ // The Assistant's answer to the topic's input returns to the topic.
+ const input=f.ledger.db.prepare('SELECT message_id FROM input_threads').get().message_id;
+ f.setMessages([{id:'answer-1',to:'owner',from:{kind:'assistant',name:'CTO'},body:'Shorter now.',replyTo:input}]);
+ await f.c.forwardMessage({id:'answer-1',to:'owner',from:{kind:'assistant',name:'CTO'},body:'Shorter now.',replyTo:input});
+ assert.equal(f.provider.at(-1).body.message_thread_id,55);
+});
+
+test('/topics needs Threaded Mode and an Assistant, then opens a topic once',async t=>{
+ const off=await fixture(t);off.select('assistant');
+ await off.c.receive(off.update('/topics'));
+ assert.match(off.provider.at(-1).body.text,/Threaded Mode/);
+ const f=await fixture(t,{topics:true});
+ await f.c.receive(f.update('/topics'));
+ assert.match(f.provider.at(-1).body.text,/Choose an Assistant/);
+ f.select('assistant');
+ await f.c.receive(f.update('/topics'));
+ const keyboard=f.provider.at(-1).body.reply_markup.inline_keyboard;
+ assert.deepEqual(keyboard.map(r=>r[0].callback_data),['p:jingle-ideas','p:trip']);
+ const sentID=f.provider.length+100;
+ await f.c.receive(f.callback('p:trip',sentID));
+ const made=f.provider.find(p=>p.method==='createForumTopic');
+ assert.equal(made.body.name,'trip');
+ const thread=f.ledger.threadOf('trip');assert.ok(thread>0);
+ assert.equal(f.provider.at(-1).body.message_thread_id,thread,'the first line is in the new topic');
+ await f.c.receive(f.callback('p:trip',sentID));
+ assert.equal(f.provider.filter(p=>p.method==='createForumTopic').length,1,'an open topic is not made twice');
+ await f.c.receive(f.callback('p:Not A Slug',sentID));
+ assert.equal(f.provider.filter(p=>p.method==='createForumTopic').length,1);
 });

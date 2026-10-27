@@ -1,7 +1,7 @@
 {
   "id": "telegram",
   "name": "Telegram",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "apiVersion": 4,
   "publisher": "COGNIX[WS]",
   "description": "Receive questions, talk to agents and Assistants, and allow channel tools in one private Telegram chat.",

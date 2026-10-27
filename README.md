@@ -30,6 +30,11 @@ packages or hosted relay are required.
    Assistant's tools, then save. Use `/assistants` in Telegram. The same tool
    setting permits tool sends; no second access form or workspace grant exists.
    Conversations use that Assistant's existing memory and enabled tools.
+   Start a message with `#name` to send it to one of the Assistant's topics.
+   With **Threaded Mode** on for your bot in @BotFather, `/topics` lists the
+   Assistant's topics and opens one as a topic of the private chat: what you
+   write there goes to that topic and its answers come back there. A topic you
+   make in the chat yourself goes to the topic of the same name, opened if new.
 7. For CLI tool sends, enable the default-off **Channels** family and relaunch
    that CLI. List the connections and choose one explicitly for each send.
    Ordinary Assistant answers return to their source automatically; a tool send

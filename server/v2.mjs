@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { ApiError } from './http.mjs';
+import { topicSlug } from './channel.mjs';
 
 const hash = text => createHash('sha256').update(text).digest('hex');
 const identity = text => typeof text === 'string' && /^[\x21-\x7e]{1,128}$/.test(text);
@@ -79,9 +80,13 @@ export class ChannelV2 {
     this.ledger.selectTarget(target);
     return {text:`Messages will go to ${target.kind==='assistant'?'Assistant':'agent'} ${item.name}. Reply keeps the original conversation.`};
   }
-  async input(update, text, pairGeneration, replyTo = '') {
+  async input(update, text, pairGeneration, replyTo = '', thread = 0) {
     await this.requireText();
     await this.sync();
+    // A message in a known topic goes to that topic with a leading "#slug",
+    // the owner's own mark (ADR-0376 row 1); one already marked goes as typed.
+    const slug = thread ? this.ledger.thread(thread) : '';
+    if (slug && !replyTo && !text.startsWith('#')) text = `#${slug} ${text}`;
     const target = this.ledger.get('selected_target');
     if (!replyTo && (!target || target.kind!=='assistant' || target.generation!==this.ledger.get('host_generation'))) throw new ApiError(409,'Choose an Assistant again.');
     if (Buffer.byteLength(text)>16*1024) throw new ApiError(400,'This message is too long.');
@@ -99,12 +104,40 @@ export class ChannelV2 {
       const id = result.message?.id;
       if (!identity(id)) throw new ApiError(502,'The input receipt could not be confirmed.',{uncertain:true});
       this.ledger.bindInput(key,id);
+      if (thread) this.ledger.bindInputThread(id,thread);
     } catch (error) {
       if (accepted) error.uncertain=true;
       try { this.ledger.settleDelivery(key,error.uncertain?'uncertain':error.status===429 || error.code==='paused'?'retry':'failed'); } catch { error.uncertain=true; }
       throw error;
     }
     return {...this.channel.sentReceipt(result),receiptKind:'assistant-receipt'};
+  }
+  // topics lists the chosen Assistant's topics as buttons; one opens it as a
+  // topic of this private chat (ADR-0376 T4b).
+  async topics() {
+    await this.sync();
+    if (!this.channel.topicsEnabled) return {text:'Turn on Threaded Mode for your bot in @BotFather to use topics here, then try /topics again.'};
+    const target = this.ledger.get('selected_target');
+    if (!target || target.kind!=='assistant' || target.generation!==this.ledger.get('host_generation')) return {text:'Choose an Assistant with /assistants first.'};
+    await this.requireText();
+    const result = await this.channel.host.request('/api/ext/v2/assistants/topics?assistant='+encodeURIComponent(target.id));
+    const keyboard = (result.topics || []).map(t => topicSlug(t.name)).filter(Boolean).slice(0,20).map(slug => [{text:'#'+slug,callback_data:'p:'+slug}]);
+    if (!keyboard.length) return {text:'This Assistant has no topics yet. Start one in COGNIX, or write #name and a message here.'};
+    return {text:'Open a topic here. Messages you send in it go to that topic.',keyboard};
+  }
+  // openTopic opens slug as a private-chat topic, or finds the one open.
+  async openTopic(slug, pairGeneration) {
+    if (!this.channel.topicsEnabled) throw new ApiError(409,'Topics are off for this bot.');
+    if (slug !== topicSlug(slug)) throw new ApiError(400,'This button is no longer available.');
+    const pair = this.ledger.get('pair');
+    let thread = this.ledger.threadOf(slug);
+    if (!thread) {
+      const made = await this.channel.send('createForumTopic',{chat_id:pair.chat,name:slug},pairGeneration);
+      thread = made?.message_thread_id;
+      if (!Number.isSafeInteger(thread)) throw new ApiError(502,'The topic could not be confirmed.',{uncertain:true});
+      this.ledger.setThread(thread,slug);
+    }
+    return {text:`Messages you send in this topic go to #${slug}.`,thread};
   }
   async replyAllowed(id, pairGeneration) {
     this.channel.assertActive(pairGeneration);

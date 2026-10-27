@@ -13,6 +13,7 @@ function fixture(t) {
   const database = new DatabaseSync(path);
   database.exec(readFileSync(new URL('../migrations/001_ledger.sql', import.meta.url), 'utf8'));
   database.exec(readFileSync(new URL('../migrations/002_channels_v2.sql', import.meta.url), 'utf8'));
+  database.exec(readFileSync(new URL('../migrations/003_private_topics.sql', import.meta.url), 'utf8'));
   database.close();
   let now = 1_800_000_000_000;
   const ledger = new Ledger(path, { now: () => now });

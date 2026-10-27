@@ -53,6 +53,8 @@ export class Channel {
     this.ledger.bindBot(identity.id);
     this.ledger.set('authentication_required', false);
     this.bot = bot; this.botName = identity.username || '';
+    // Private-chat topics (Bot API 9.3, 9.4): the bot's Threaded Mode in @BotFather.
+    this.topicsEnabled = identity.has_topics_enabled === true;
     await this.v2.sync();
     const lastPoll = this.ledger.get('last_poll', 0);
     if (lastPoll && this.now() - lastPoll > 86400_000) this.warning = 'This computer was offline for over a day. Some Telegram messages may be missing.';
@@ -185,6 +187,9 @@ export class Channel {
     const generation = this.ledger.get('pair').generation;
     if (message.date && update.message && message.date * 1000 < this.ledger.get('pair').connectedAt - 1000) { finish('ignored'); return; }
     if (update.callback_query) await this.bot.call('answerCallbackQuery', { callback_query_id: update.callback_query.id, text: 'Checking in COGNIX…' }).catch(() => {});
+    // A message in a private-chat topic is answered in that topic (ADR-0376 T4b).
+    const thread = topicThread(message);
+    const inThread = thread ? { message_thread_id: thread } : {};
     let action;
     try {
       action = await this.route(update, message, generation);
@@ -201,11 +206,11 @@ export class Channel {
       if (error.code === 'stale-pair') return;
 
       const text = error.code === 'text-disabled' ? 'Turn on Include message text in Telegram settings in COGNIX.' : error.uncertain ? 'The delivery could not be confirmed. Check it in COGNIX before sending again.' : error.status === 409 ? 'This needs your attention in COGNIX, or it has already been answered.' : 'This action could not be completed. Open COGNIX and try there.';
-      await this.notice(text, {}, generation).catch(() => {});
+      await this.notice(text, inThread, generation).catch(() => {});
       return;
     }
     if (action?.text) {
-      const sent = await this.notice(action.text, action.keyboard ? { reply_markup: { inline_keyboard: action.keyboard } } : {}, generation).catch(error => { this.warning = error.uncertain ? 'A chat receipt could not be confirmed. Check COGNIX before sending again.' : 'A chat receipt could not be sent. Open COGNIX to check the result.'; return null; });
+      const sent = await this.notice(action.text, action.keyboard ? { ...inThread, reply_markup: { inline_keyboard: action.keyboard } } : { ...(action.thread ? { message_thread_id: action.thread } : inThread) }, generation).catch(error => { this.warning = error.uncertain ? 'A chat receipt could not be confirmed. Check COGNIX before sending again.' : 'A chat receipt could not be sent. Open COGNIX to check the result.'; return null; });
       if (sent && action.keyboard) for (const row of action.keyboard) for (const button of row) if (button.callback_data) this.ledger.bindHandle(button.callback_data, sent.message_id);
       if (sent && action.receipt) {
         const kind = action.receiptKind || 'receipt';
@@ -219,6 +224,7 @@ export class Channel {
     if (update.callback_query) {
       const data = update.callback_query.data || '';
       if (this.v2.enabled && data.startsWith('t:')) return this.v2.select(data,message.message_id,generation);
+      if (this.v2.enabled && data.startsWith('p:')) return this.v2.openTopic(data.slice(2),generation);
       const button = this.ledger.resolveButton(data, message.message_id);
       if (!button) throw new ApiError(409, 'This button is no longer available.');
       if (data.startsWith('a:')) {
@@ -236,12 +242,20 @@ export class Channel {
       if (!item?.answerable || typeof choice !== 'string' || digest(choice) !== button.choice_hash) throw new ApiError(409, 'This question is no longer answerable.');
       return this.answer(item.id, choice, generation);
     }
+    // A topic made or renamed in the private chat: remember its name (T4b).
+    const made = message.forum_topic_created || message.forum_topic_edited;
+    if (made && typeof made.name === 'string' && topicThread(message)) {
+      const slug = topicSlug(made.name);
+      if (slug) this.ledger.setThread(topicThread(message), slug);
+      return null;
+    }
     const text = message.text?.trim();
     if (!text) return { text: 'Only text reaches agents for now. Open COGNIX for files or audio.' };
+    if (this.v2.enabled && (text === '/topics' || text.startsWith('/topics@'))) return this.v2.topics();
     if (this.v2.enabled && (text === '/assistants' || text.startsWith('/assistants@'))) return this.v2.choose('assistant');
     if (text === '/agents' || text.startsWith('/agents@')) return this.chooseAgent();
-    if (text === '/help' || text === '/start') return { text: 'Use /agents for running agents or /assistants for Assistants with Channels enabled. Reply to a question to answer it, or reply to an agent message to continue that conversation.' };
-    if (text.startsWith('/')) return { text: 'Use /agents to choose an agent, /assistants for Assistants with Channels enabled, or reply to an Inbox question.' };
+    if (text === '/help' || text === '/start') return { text: 'Use /agents for running agents or /assistants for Assistants with Channels enabled. With an Assistant chosen, /topics opens one of its topics here. Reply to a question to answer it, or reply to an agent message to continue that conversation.' };
+    if (text.startsWith('/')) return { text: 'Use /agents to choose an agent, /assistants for Assistants with Channels enabled, /topics for an Assistant\'s topics, or reply to an Inbox question.' };
     const mapping = message.reply_to_message && this.ledger.mapping(message.reply_to_message.message_id);
     if (message.reply_to_message && !mapping) return { text: 'This message is no longer linked. Use /agents to choose who to write to, or open the question in COGNIX.' };
     if (mapping?.kind === 'inbox') {
@@ -259,7 +273,7 @@ export class Channel {
       await this.v2.sync();
       const target = this.ledger.get('selected_target');
       if (target && target.generation !== this.ledger.get('host_generation')) throw new ApiError(409,'Choose a current target again.');
-      if (target?.kind === 'assistant') return this.v2.input(update,text,generation);
+      if (target?.kind === 'assistant') return this.v2.input(update,text,generation,'',topicThread(message));
     }
     const to = this.v2.enabled ? this.ledger.get('selected_target')?.id : this.ledger.get('selected_agent');
     if (!to) return this.chooseAgent('Who is this for?');
@@ -376,7 +390,8 @@ export class Channel {
     if (!this.ledger.claimDelivery(key, kind, message.id)) return;
     const pair = this.ledger.get('pair');
     const link = this.link('messages');
-    const body = {chat_id:pair?.chat,text:'',...(link?{reply_markup:{inline_keyboard:[[link]]}}:{})};
+    const thread = assistant && message.replyTo ? this.ledger.inputThread(message.replyTo) : 0;
+    const body = {chat_id:pair?.chat,text:'',...(thread?{message_thread_id:thread}:{}),...(link?{reply_markup:{inline_keyboard:[[link]]}}:{})};
     try {
       const result = await this.send('sendMessage',body,generation,async () => {
         if (this.v2.enabled) {
@@ -472,4 +487,19 @@ export class Channel {
     }, 'reconcile')];
   }
   stop() { this.stopped = true; }
+}
+
+// topicThread is the private-chat topic a message is in (Bot API 9.3), or 0.
+export function topicThread(message) {
+  return message?.is_topic_message && Number.isSafeInteger(message.message_thread_id) ? message.message_thread_id : 0;
+}
+
+// topicSlug writes a Telegram topic's name as COGNIX[WS] keys a topic's
+// name: letters and digits, lower case, one hyphen between words, at most 32
+// characters ("Jingle ideas" is jingle-ideas). "" when nothing is left.
+export function topicSlug(name) {
+  const words = String(name || '').normalize('NFKC').toLowerCase().split(/[^\p{L}\p{N}\p{M}]+/u).filter(Boolean);
+  let slug = words.join('-');
+  if (slug.length > 32) slug = slug.slice(0, 32).replace(/-+[^-]*$/, '') || slug.slice(0, 32);
+  return slug.replace(/^-+|-+$/g, '');
 }
