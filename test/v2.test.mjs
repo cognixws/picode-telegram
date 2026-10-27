@@ -287,28 +287,34 @@ test('tool lifecycle revision is opaque and stale picker cannot survive a switch
  await assert.rejects(f.c.v2.select(second.keyboard[0][0].callback_data,801,f.ledger.get('pair').generation),/current target/);
 });
 
-// Private-chat topics (ADR-0376 T4b): a known topic marks the input with its
-// slug and the answer returns there; a topic made in Telegram is learned from
-// its service message; /topics offers the Assistant's topics and a button
-// opens one (once).
+// Private-chat topics (ADR-0376 T4b): a known topic of the chosen Assistant
+// marks the input with its slug and the answer returns there; a topic made in
+// Telegram is learned from its service message; /topics offers the
+// Assistant's topics and a button opens one (once).
+const topicMessage=(text,thread,extra={})=>({message_thread_id:thread,is_topic_message:true,reply_to_message:{message_id:thread,forum_topic_created:{name:'x'}},...extra});
 test('a message in a private-chat topic goes to that topic and is answered there',async t=>{
  const f=await fixture(t,{topics:true});f.select('assistant');
  await f.c.receive(f.update('',{message_thread_id:55,is_topic_message:true,forum_topic_created:{name:'Jingle ideas'}}));
- assert.equal(f.ledger.thread(55),'jingle-ideas');
- await f.c.receive(f.update('make it shorter',{message_thread_id:55,is_topic_message:true}));
+ assert.deepEqual({...f.ledger.thread(55)},{assistant:'as-a',slug:'jingle-ideas'});
+ await f.c.receive(f.update('make it shorter',topicMessage('',55)));
  const write=f.writes.at(-1);
- assert.equal(write.path,'/api/ext/v2/assistants/messages');assert.equal(write.body.text,'#jingle-ideas make it shorter');
+ assert.equal(write.path,'/api/ext/v2/assistants/messages');assert.equal(write.body.text,'#jingle-ideas make it shorter','the topic root is not a reply');
  assert.equal(f.provider.at(-1).body.message_thread_id,55,'the receipt is in the topic');
- await f.c.receive(f.update('#trip book the hotel',{message_thread_id:55,is_topic_message:true}));
- assert.equal(f.writes.at(-1).body.text,'#trip book the hotel','a marked message goes as typed');
+ await f.c.receive(f.update('#1 priority today',topicMessage('',55)));
+ assert.equal(f.writes.at(-1).body.text,'#jingle-ideas #1 priority today','a # that is not the mark still goes to the topic');
+ await f.c.receive(f.update('#jingle-ideas again',topicMessage('',55)));
+ assert.equal(f.writes.at(-1).body.text,'#jingle-ideas again','its own mark is not doubled');
  await f.c.receive(f.update('no topic here'));
  assert.equal(f.writes.at(-1).body.text,'no topic here');
  assert.equal(f.provider.at(-1).body.message_thread_id,undefined);
  // The Assistant's answer to the topic's input returns to the topic.
- const input=f.ledger.db.prepare('SELECT message_id FROM input_threads').get().message_id;
- f.setMessages([{id:'answer-1',to:'owner',from:{kind:'assistant',name:'CTO'},body:'Shorter now.',replyTo:input}]);
+ const input=f.ledger.db.prepare('SELECT message_id FROM input_threads ORDER BY created_at LIMIT 1').get().message_id;
  await f.c.forwardMessage({id:'answer-1',to:'owner',from:{kind:'assistant',name:'CTO'},body:'Shorter now.',replyTo:input});
  assert.equal(f.provider.at(-1).body.message_thread_id,55);
+ // Another Assistant chosen since: the topic's mark is not sent to it.
+ f.ledger.selectTarget({kind:'assistant',id:'as-b',generation:f.ledger.get('host_generation'),revision:1});
+ await f.c.receive(f.update('for B',topicMessage('',55)));
+ assert.equal(f.writes.at(-1).body.text,'for B');
 });
 
 test('/topics needs Threaded Mode and an Assistant, then opens a topic once',async t=>{
@@ -321,15 +327,30 @@ test('/topics needs Threaded Mode and an Assistant, then opens a topic once',asy
  f.select('assistant');
  await f.c.receive(f.update('/topics'));
  const keyboard=f.provider.at(-1).body.reply_markup.inline_keyboard;
- assert.deepEqual(keyboard.map(r=>r[0].callback_data),['p:jingle-ideas','p:trip']);
- const sentID=f.provider.length+100;
- await f.c.receive(f.callback('p:trip',sentID));
+ assert.deepEqual(keyboard.map(r=>r[0].text),['#jingle-ideas','#trip']);
+ for (const r of keyboard) assert.ok(Buffer.byteLength(r[0].callback_data)<=64,'callback_data fits Telegram');
+ const trip=keyboard[1][0].callback_data,sentID=f.provider.length+100;
+ await f.c.receive(f.callback(trip,sentID));
  const made=f.provider.find(p=>p.method==='createForumTopic');
  assert.equal(made.body.name,'trip');
- const thread=f.ledger.threadOf('trip');assert.ok(thread>0);
+ const thread=f.ledger.threadOf('as-a','trip');assert.ok(thread>0);
  assert.equal(f.provider.at(-1).body.message_thread_id,thread,'the first line is in the new topic');
- await f.c.receive(f.callback('p:trip',sentID));
+ await f.c.receive(f.callback(trip,sentID));
  assert.equal(f.provider.filter(p=>p.method==='createForumTopic').length,1,'an open topic is not made twice');
- await f.c.receive(f.callback('p:Not A Slug',sentID));
- assert.equal(f.provider.filter(p=>p.method==='createForumTopic').length,1);
+ await f.c.receive(f.callback('p:forged-handle',sentID));
+ assert.equal(f.provider.filter(p=>p.method==='createForumTopic').length,1,'a handle of no current topic is refused');
+ // A topic deleted in Telegram is made again.
+ f.setProviderError(Object.assign(new ApiError(400,'Bad Request: message thread not found'),{status:400}));
+ const before=f.provider.length;
+ const once=f.c.v2.openTopic(trip.slice(2),f.ledger.get('pair').generation);
+ await assert.rejects(once);f.setProviderError(null);
+ assert.equal(f.ledger.threadOf('as-a','trip'),0,'the deleted thread is forgotten');
+ assert.ok(f.provider.length>before);
+});
+
+test('long names give buttons Telegram accepts',async t=>{
+ const f=await fixture(t,{topics:true});f.select('assistant');
+ f.c.v2.slugs=async()=>['маркетинг-и-продажи-новых-продукт','日本語のトピックとてもながいなまえ'];
+ await f.c.receive(f.update('/topics'));
+ for (const r of f.provider.at(-1).body.reply_markup.inline_keyboard) assert.ok(Buffer.byteLength(r[0].callback_data)<=64);
 });

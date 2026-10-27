@@ -117,12 +117,13 @@ export class Ledger {
   }
   // Private-chat topics (ADR-0376 T4b): a thread's slug, the thread of a
   // slug, and the thread an input came from.
-  thread(id) { return Number.isSafeInteger(id) ? this.db.prepare('SELECT slug FROM threads WHERE thread_id=?').get(id)?.slug || '' : ''; }
-  threadOf(slug) { return slug ? this.db.prepare('SELECT thread_id FROM threads WHERE slug=? ORDER BY created_at DESC LIMIT 1').get(slug)?.thread_id || 0 : 0; }
-  setThread(id, slug) {
-    if (!Number.isSafeInteger(id) || !slug) return;
-    this.db.prepare('INSERT INTO threads(thread_id,slug,created_at) VALUES(?,?,?) ON CONFLICT(thread_id) DO UPDATE SET slug=excluded.slug').run(id, slug, this.now());
+  thread(id) { return Number.isSafeInteger(id) ? this.db.prepare('SELECT assistant,slug FROM threads WHERE thread_id=?').get(id) || null : null; }
+  threadOf(assistant, slug) { return assistant && slug ? this.db.prepare('SELECT thread_id FROM threads WHERE assistant=? AND slug=? ORDER BY created_at DESC LIMIT 1').get(assistant, slug)?.thread_id || 0 : 0; }
+  setThread(id, assistant, slug) {
+    if (!Number.isSafeInteger(id) || !assistant || !slug) return;
+    this.db.prepare('INSERT INTO threads(thread_id,assistant,slug,created_at) VALUES(?,?,?,?) ON CONFLICT(thread_id) DO UPDATE SET slug=excluded.slug,assistant=excluded.assistant').run(id, assistant, slug, this.now());
   }
+  forgetThread(id) { if (Number.isSafeInteger(id)) this.db.prepare('DELETE FROM threads WHERE thread_id=?').run(id); }
   bindInputThread(messageID, thread) {
     if (!messageID || !Number.isSafeInteger(thread)) return;
     this.db.prepare('INSERT OR IGNORE INTO input_threads(message_id,thread_id,created_at) VALUES(?,?,?)').run(messageID, thread, this.now());

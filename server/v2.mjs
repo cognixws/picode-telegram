@@ -2,6 +2,9 @@ import { createHash } from 'node:crypto';
 import { ApiError } from './http.mjs';
 import { topicSlug } from './channel.mjs';
 
+// topicHandle is a short, stable handle of an Assistant's topic for a button.
+const topicHandle = (assistant, slug) => createHash('sha256').update(assistant + '\0' + slug).digest('base64url').slice(0, 16);
+
 const hash = text => createHash('sha256').update(text).digest('hex');
 const identity = text => typeof text === 'string' && /^[\x21-\x7e]{1,128}$/.test(text);
 const hex = text => typeof text === 'string' && /^[a-f0-9]{64}$/.test(text);
@@ -83,10 +86,14 @@ export class ChannelV2 {
   async input(update, text, pairGeneration, replyTo = '', thread = 0) {
     await this.requireText();
     await this.sync();
-    // A message in a known topic goes to that topic with a leading "#slug",
-    // the owner's own mark (ADR-0376 row 1); one already marked goes as typed.
-    const slug = thread ? this.ledger.thread(thread) : '';
-    if (slug && !replyTo && !text.startsWith('#')) text = `#${slug} ${text}`;
+    // A message in a known topic of the chosen Assistant goes to that topic
+    // with a leading "#slug", the owner's own mark (ADR-0376 row 1), unless it
+    // already leads with that mark: the core reads one mark, so "#1 …" in a
+    // topic still goes to the topic. A reply keeps its own binding.
+    const known = thread ? this.ledger.thread(thread) : null;
+    const chosen = this.ledger.get('selected_target');
+    const slug = known && chosen?.kind === 'assistant' && known.assistant === chosen.id ? known.slug : '';
+    if (slug && !replyTo && !new RegExp('^#' + slug.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s').test(text)) text = `#${slug} ${text}`;
     const target = this.ledger.get('selected_target');
     if (!replyTo && (!target || target.kind!=='assistant' || target.generation!==this.ledger.get('host_generation'))) throw new ApiError(409,'Choose an Assistant again.');
     if (Buffer.byteLength(text)>16*1024) throw new ApiError(400,'This message is too long.');
@@ -120,22 +127,38 @@ export class ChannelV2 {
     const target = this.ledger.get('selected_target');
     if (!target || target.kind!=='assistant' || target.generation!==this.ledger.get('host_generation')) return {text:'Choose an Assistant with /assistants first.'};
     await this.requireText();
-    const result = await this.channel.host.request('/api/ext/v2/assistants/topics?assistant='+encodeURIComponent(target.id));
-    const keyboard = (result.topics || []).map(t => topicSlug(t.name)).filter(Boolean).slice(0,20).map(slug => [{text:'#'+slug,callback_data:'p:'+slug}]);
+    const keyboard = (await this.slugs(target.id)).slice(0,20).map(slug => [{text:'#'+slug,callback_data:'p:'+topicHandle(target.id,slug)}]);
     if (!keyboard.length) return {text:'This Assistant has no topics yet. Start one in COGNIX, or write #name and a message here.'};
     return {text:'Open a topic here. Messages you send in it go to that topic.',keyboard};
   }
-  // openTopic opens slug as a private-chat topic, or finds the one open.
-  async openTopic(slug, pairGeneration) {
+  // slugs are the chosen Assistant's topics as slugs, the latest first.
+  async slugs(assistant) {
+    const result = await this.channel.host.request('/api/ext/v2/assistants/topics?assistant='+encodeURIComponent(assistant));
+    return [...new Set((result.topics || []).map(t => topicSlug(t.name)).filter(Boolean))];
+  }
+  // openTopic opens a button's topic as a private-chat topic, or finds the
+  // one open: the button names a topic of the Assistant chosen now by a
+  // short handle (Telegram's callback_data holds 64 bytes).
+  async openTopic(handle, pairGeneration) {
     if (!this.channel.topicsEnabled) throw new ApiError(409,'Topics are off for this bot.');
-    if (slug !== topicSlug(slug)) throw new ApiError(400,'This button is no longer available.');
+    await this.sync();
+    const target = this.ledger.get('selected_target');
+    if (!target || target.kind!=='assistant' || target.generation!==this.ledger.get('host_generation')) throw new ApiError(409,'Choose an Assistant with /assistants first.');
+    await this.requireText();
+    const slug = (await this.slugs(target.id)).find(s => topicHandle(target.id,s) === handle);
+    if (!slug) throw new ApiError(409,'This topic is no longer available. Use /topics again.');
     const pair = this.ledger.get('pair');
-    let thread = this.ledger.threadOf(slug);
+    let thread = this.ledger.threadOf(target.id,slug);
+    if (thread) {
+      // A topic deleted in Telegram sends no update: check it is still there.
+      try { await this.channel.send('sendChatAction',{chat_id:pair.chat,message_thread_id:thread,action:'typing'},pairGeneration); }
+      catch (error) { if (error.status === 400) { this.ledger.forgetThread(thread); thread = 0; } else throw error; }
+    }
     if (!thread) {
       const made = await this.channel.send('createForumTopic',{chat_id:pair.chat,name:slug},pairGeneration);
       thread = made?.message_thread_id;
       if (!Number.isSafeInteger(thread)) throw new ApiError(502,'The topic could not be confirmed.',{uncertain:true});
-      this.ledger.setThread(thread,slug);
+      this.ledger.setThread(thread,target.id,slug);
     }
     return {text:`Messages you send in this topic go to #${slug}.`,thread};
   }

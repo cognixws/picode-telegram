@@ -243,10 +243,12 @@ export class Channel {
       return this.answer(item.id, choice, generation);
     }
     // A topic made or renamed in the private chat: remember its name (T4b).
+    // It belongs to the Assistant chosen when it was made or renamed.
     const made = message.forum_topic_created || message.forum_topic_edited;
-    if (made && typeof made.name === 'string' && topicThread(message)) {
-      const slug = topicSlug(made.name);
-      if (slug) this.ledger.setThread(topicThread(message), slug);
+    if (made && topicThread(message)) {
+      const target = this.ledger.get('selected_target');
+      const slug = typeof made.name === 'string' ? topicSlug(made.name) : '';
+      if (slug && target?.kind === 'assistant') this.ledger.setThread(topicThread(message), target.id, slug);
       return null;
     }
     const text = message.text?.trim();
@@ -256,14 +258,17 @@ export class Channel {
     if (text === '/agents' || text.startsWith('/agents@')) return this.chooseAgent();
     if (text === '/help' || text === '/start') return { text: 'Use /agents for running agents or /assistants for Assistants with Channels enabled. With an Assistant chosen, /topics opens one of its topics here. Reply to a question to answer it, or reply to an agent message to continue that conversation.' };
     if (text.startsWith('/')) return { text: 'Use /agents to choose an agent, /assistants for Assistants with Channels enabled, /topics for an Assistant\'s topics, or reply to an Inbox question.' };
-    const mapping = message.reply_to_message && this.ledger.mapping(message.reply_to_message.message_id);
-    if (message.reply_to_message && !mapping) return { text: 'This message is no longer linked. Use /agents to choose who to write to, or open the question in COGNIX.' };
+    // In a topic, Telegram sets reply_to_message on every message to the
+    // topic's first one: that is no reply.
+    const replied = topicRoot(message) ? null : message.reply_to_message;
+    const mapping = replied && this.ledger.mapping(replied.message_id);
+    if (replied && !mapping) return { text: 'This message is no longer linked. Use /agents to choose who to write to, or open the question in COGNIX.' };
     if (mapping?.kind === 'inbox') {
       const item = await this.currentItem(mapping.source_id);
       if (!item?.answerable) throw new ApiError(409, 'This item is not answerable here.');
       return this.answer(mapping.source_id, text, generation);
     }
-    if (this.v2.enabled && ['assistant','assistant-receipt'].includes(mapping?.kind)) return this.v2.input(update,text,generation,mapping.source_id);
+    if (this.v2.enabled && ['assistant','assistant-receipt'].includes(mapping?.kind)) return this.v2.input(update,text,generation,mapping.source_id,topicThread(message));
     if (mapping && !['inbox','message','receipt'].includes(mapping.kind)) return {text:'This message has no conversation link. Use /agents or /assistants to choose who to write to.'};
     if (mapping?.kind === 'message' || mapping?.kind === 'receipt') {
       const result = await this.hostWrite('/api/ext/v1/messages/owner', { text, replyTo: mapping.source_id }, generation);
@@ -494,12 +499,32 @@ export function topicThread(message) {
   return message?.is_topic_message && Number.isSafeInteger(message.message_thread_id) ? message.message_thread_id : 0;
 }
 
-// topicSlug writes a Telegram topic's name as COGNIX[WS] keys a topic's
-// name: letters and digits, lower case, one hyphen between words, at most 32
-// characters ("Jingle ideas" is jingle-ideas). "" when nothing is left.
+// topicRoot says a message's reply_to_message is only its topic's first
+// message, as Telegram sets it on every message of a topic.
+export function topicRoot(message) {
+  const r = message?.reply_to_message;
+  return !!(topicThread(message) && r && (r.message_id === message.message_thread_id || r.forum_topic_created));
+}
+
+// Names the core reserves: "#all" stays text there, so it is never a mark.
+const RESERVED = new Set(['all']);
+const MAX = 32;
+
+// topicSlug writes a Telegram topic's name as the core keeps a topic's name
+// (internal/store CleanTopicName): letters and decimal digits, lower case; a
+// mark or a joiner only after a letter; one hyphen between words; at most 32
+// characters. What the core would refuse is dropped as a word break here, so
+// a name always gives the slug the core would keep. "" when nothing is left
+// or the name is reserved.
 export function topicSlug(name) {
-  const words = String(name || '').normalize('NFKC').toLowerCase().split(/[^\p{L}\p{N}\p{M}]+/u).filter(Boolean);
-  let slug = words.join('-');
-  if (slug.length > 32) slug = slug.slice(0, 32).replace(/-+[^-]*$/, '') || slug.slice(0, 32);
-  return slug.replace(/^-+|-+$/g, '');
+  let out = '', dash = false, afterLetter = false;
+  for (const ch of String(name || '').normalize('NFKC')) {
+    if (/\p{L}|\p{Nd}/u.test(ch)) { out += ch.toLowerCase(); dash = false; afterLetter = true; }
+    else if (/\p{M}/u.test(ch) || ch === '\u200c' || ch === '\u200d') { if (afterLetter) { out += ch; dash = false; } }
+    else { if (!dash && out) out += '-'; dash = true; afterLetter = false; }
+  }
+  let chars = [...out.normalize('NFC').replace(/^-+|-+$/g, '')];
+  if (chars.length > MAX) chars = chars.slice(0, MAX);
+  const slug = chars.join('').replace(/-+$/, '');
+  return RESERVED.has(slug) ? '' : slug;
 }
